@@ -47,14 +47,14 @@ EOF
 }
 
 test-flag-gen() {
-  ninja _build/cpp/arg_types.{h,cc}
+  ninja _gen/frontend/arg_types.{h,cc}
 
   local tmp_dir=_test/gen-cpp/core
   local bin_dir=_bin/cxx-asan/core
   mkdir -p $tmp_dir $bin_dir
 
   cat >$tmp_dir/arg_types_test.cc <<'EOF'
-#include "_build/cpp/arg_types.h"
+#include "_gen/frontend/arg_types.h"
 
 int main() {
   printf("kFlagSpecs %p\n", arg_types::kFlagSpecs);
@@ -66,7 +66,7 @@ EOF
   local bin=$bin_dir/arg_types_test
 
   compile_and_link cxx asan '' $bin \
-    _build/cpp/arg_types.cc \
+    _gen/frontend/arg_types.cc \
     $tmp_dir/arg_types_test.cc
 
   log "RUN $bin"
