@@ -124,7 +124,8 @@ format-wwz-index() {
   cat <<EOF
   <body class="width40">
     <p id="home-link">
-      <a href="/">travis-ci.oilshell.org</a>
+        <a href="..">Up</a>
+      | <a href="/">travis-ci.oilshell.org</a>
       | <a href="//oilshell.org/">oilshell.org</a>
     </p>
 
