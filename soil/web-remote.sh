@@ -119,7 +119,7 @@ format-wwz-index() {
   local job_id=$1
   local tsv=${2:-_tmp/soil/INDEX.tsv}
 
-  soil-html-head "$job_id results"
+  soil-html-head "CI job $job_id"
 
   cat <<EOF
   <body class="width40">
