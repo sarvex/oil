@@ -129,7 +129,7 @@ format-wwz-index() {
       | <a href="//oilshell.org/">oilshell.org</a>
     </p>
 
-    <h1>Job <code>$job_id</code></h1>
+    <h1>CI job <code>$job_id</code></h1>
 
     <table>
       <thead>
