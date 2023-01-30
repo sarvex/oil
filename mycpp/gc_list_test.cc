@@ -9,6 +9,11 @@
 #include "mycpp/gc_obj.h"
 #include "vendor/greatest.h"
 
+using mylib::str_cmp;
+
+GLOBAL_STR(kStrFoo, "foo");
+GLOBAL_STR(kSpace, " ");
+
 void Print(List<Str*>* parts) {
   log("---");
   log("len = %d", len(parts));
@@ -242,6 +247,14 @@ TEST test_list_iters() {
     log("x = %d", x);
   }
 
+  {
+    ListIter<int> it(ints);
+    auto ints2 = list(it);
+    ASSERT_EQ(ints->index_(0), ints2->index_(0));
+    ASSERT_EQ(ints->index_(1), ints2->index_(1));
+    ASSERT_EQ(ints->index_(2), ints2->index_(2));
+  }
+
   log("  backward iteration over list");
   for (ReverseListIter<int> it(ints); !it.Done(); it.Next()) {
     int x = it.Value();
@@ -255,38 +268,6 @@ TEST test_list_iters() {
   PASS();
 }
 
-TEST test_list_contains() {
-  bool b;
-
-  log("  List<Str*>");
-  auto strs = NewList<Str*>();
-  strs->append(StrFromC("bar"));
-
-  b = list_contains(strs, StrFromC("foo"));
-  ASSERT(b == false);
-
-  strs->append(StrFromC("foo"));
-  b = list_contains(strs, StrFromC("foo"));
-  ASSERT(b == true);
-
-  log("  ints");
-  auto ints = NewList<int>({1, 2, 3});
-  b = list_contains(ints, 1);
-  ASSERT(b == true);
-
-  b = list_contains(ints, 42);
-  ASSERT(b == false);
-
-  log("  floats");
-  auto floats = NewList<double>({0.5, 0.25, 0.0});
-  b = list_contains(floats, 0.0);
-  log("b = %d", b);
-  b = list_contains(floats, 42.0);
-  log("b = %d", b);
-
-  PASS();
-}
-
 TEST test_list_copy() {
   List<int>* a = NewList<int>(std::initializer_list<int>{1, 2, 3});
   List<int>* b = list(a);
@@ -295,6 +276,179 @@ TEST test_list_copy() {
   ASSERT_EQ(b->index_(0), a->index_(0));
   ASSERT_EQ(b->index_(1), a->index_(1));
   ASSERT_EQ(b->index_(2), a->index_(2));
+
+  PASS();
+}
+
+TEST list_methods_test() {
+  List<int>* ints = nullptr;
+  StackRoots _roots({&ints});
+
+  ints = NewList<int>(std::initializer_list<int>{5, 6, 7, 8});
+
+  List<int>* slice1 = ints->slice(1);
+  ASSERT_EQ(3, len(slice1));
+  ASSERT_EQ(6, slice1->index_(0));
+
+  List<int>* slice2 = ints->slice(-4, -2);
+  ASSERT_EQ(2, len(slice2));
+  ASSERT_EQ(5, slice2->index_(0));
+
+  log("-- before pop(0)");
+  for (int i = 0; i < len(ints); ++i) {
+    log("ints[%d] = %d", i, ints->index_(i));
+  }
+  ASSERT_EQ(4, len(ints));  // [5, 6, 7, 8]
+
+  log("pop()");
+
+  ints->pop();  // [5, 6, 7]
+  ASSERT_EQ(3, len(ints));
+  ASSERT_EQ_FMT(5, ints->index_(0), "%d");
+  ASSERT_EQ_FMT(6, ints->index_(1), "%d");
+  ASSERT_EQ_FMT(7, ints->index_(2), "%d");
+
+  log("pop(0)");
+
+  ints->pop(0);  // [6, 7]
+  ASSERT_EQ(2, len(ints));
+  ASSERT_EQ_FMT(6, ints->index_(0), "%d");
+  ASSERT_EQ_FMT(7, ints->index_(1), "%d");
+
+  ints->reverse();
+  ASSERT_EQ(2, len(ints));  // [7, 6]
+
+  ASSERT_EQ_FMT(7, ints->index_(0), "%d");
+  ASSERT_EQ_FMT(6, ints->index_(1), "%d");
+
+  ints->append(9);  // [7, 6, 9]
+  ASSERT_EQ(3, len(ints));
+
+  ints->reverse();  // [9, 6, 7]
+  ASSERT_EQ(9, ints->index_(0));
+  ASSERT_EQ(6, ints->index_(1));
+  ASSERT_EQ(7, ints->index_(2));
+
+  auto other = NewList<int>(std::initializer_list<int>{-1, -2});
+  ints->extend(other);  // [9, 6, 7, 1, 2]
+  ASSERT_EQ(5, len(ints));
+  ASSERT_EQ(-2, ints->index_(4));
+  ASSERT_EQ(-1, ints->index_(3));
+
+  ints->clear();
+  ASSERT_EQ(0, len(ints));
+  ASSERT_EQ(0, ints->slab_->items_[0]);  // make sure it's zero'd
+
+  PASS();
+}
+
+TEST sort_test() {
+  ASSERT_EQ(0, int_cmp(0, 0));
+  ASSERT_EQ(-1, int_cmp(0, 5));
+  ASSERT_EQ(1, int_cmp(0, -5));
+
+  Str *a = nullptr, *aa = nullptr, *b = nullptr;
+  StackRoots _roots({&a, &aa, &b});
+
+  a = StrFromC("a");
+  aa = StrFromC("aa");
+  b = StrFromC("b");
+
+  ASSERT_EQ(0, str_cmp(kEmptyString, kEmptyString));
+  ASSERT_EQ(-1, str_cmp(kEmptyString, a));
+  ASSERT_EQ(-1, str_cmp(a, aa));
+  ASSERT_EQ(-1, str_cmp(a, b));
+
+  ASSERT_EQ(1, str_cmp(b, a));
+  ASSERT_EQ(1, str_cmp(b, kEmptyString));
+
+  List<Str*>* strs = nullptr;
+  StackRoots _roots2({&strs});
+  strs = Alloc<List<Str*>>();
+
+  strs->append(a);
+  strs->append(aa);
+  strs->append(b);
+  strs->append(kEmptyString);
+  ASSERT_EQ(4, len(strs));  // ['a', 'aa', 'b', '']
+
+  strs->sort();  // ['', 'a', 'aa', 'b']
+  ASSERT_EQ(4, len(strs));
+  ASSERT(str_equals(kEmptyString, strs->index_(0)));
+  ASSERT(str_equals0("a", strs->index_(1)));
+  ASSERT(str_equals0("aa", strs->index_(2)));
+  ASSERT(str_equals0("b", strs->index_(3)));
+
+  PASS();
+}
+
+TEST contains_test() {
+  Str* s = nullptr;
+  Str* nul = nullptr;
+  StackRoots _roots({&s, &nul});
+
+  log("  List<Str*>");
+  List<Str*>* strs = nullptr;
+  List<int>* ints = nullptr;
+  List<double>* floats = nullptr;
+
+  StackRoots _roots2({&strs, &ints, &floats});
+
+  strs = Alloc<List<Str*>>();
+
+  strs->append(kSpace);
+  s = StrFromC(" ");  // LOCAL space
+  ASSERT(list_contains(strs, s));
+  ASSERT(!list_contains(strs, kStrFoo));
+
+  strs->append(kStrFoo);
+  ASSERT(list_contains(strs, kStrFoo));
+
+  log("  ints");
+  ints = NewList<int>(std::initializer_list<int>{1, 2, 3});
+  ASSERT(list_contains(ints, 1));
+
+  ASSERT(!list_contains(ints, 42));
+
+  log("  floats");
+  floats = NewList<double>(std::initializer_list<double>{0.5, 0.25, 0.0});
+  ASSERT(list_contains(floats, 0.0));
+  ASSERT(!list_contains(floats, 42.0));
+
+  PASS();
+}
+
+TEST test_list_sort() {
+  auto s1 = StrFromC("fooA");
+  auto s2 = StrFromC("fooB");
+  auto s3 = StrFromC("fooC");
+  auto l = NewList<Str*>(std::initializer_list<Str*>{s3, s1, s2});
+
+  auto s = sorted(l);
+  ASSERT(str_equals(s->index_(0), s1));
+  ASSERT(str_equals(s->index_(1), s2));
+  ASSERT(str_equals(s->index_(2), s3));
+
+  PASS();
+}
+
+TEST test_list_remove() {
+  auto l = NewList<int>(std::initializer_list<int>{1, 3, 3, 3, 2});
+
+  for (int i = 0; i < 3; ++i) {
+    l->remove(3);
+  }
+
+  bool caught = false;
+  try {
+    l->index(3);
+  } catch (ValueError* e) {
+    caught = true;
+  }
+  ASSERT(caught);
+
+  ASSERT_EQ(l->index_(0), 1);
+  ASSERT_EQ(l->index_(1), 2);
 
   PASS();
 }
@@ -312,8 +466,13 @@ int main(int argc, char** argv) {
   RUN_TEST(test_list_funcs);
   RUN_TEST(test_list_iters);
 
-  RUN_TEST(test_list_contains);
+  RUN_TEST(list_methods_test);
+  RUN_TEST(sort_test);
+  RUN_TEST(contains_test);
+
   RUN_TEST(test_list_copy);
+  RUN_TEST(test_list_sort);
+  RUN_TEST(test_list_remove);
 
   gHeap.CleanProcessExit();
 

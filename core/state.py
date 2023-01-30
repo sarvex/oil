@@ -18,21 +18,20 @@ from _devbuild.gen.runtime_asdl import (
     lvalue, lvalue_e, lvalue_t, lvalue__Named, lvalue__Indexed, lvalue__Keyed,
     scope_e, scope_t, hay_node
 )
+from _devbuild.gen.syntax_asdl import loc
 from _devbuild.gen.types_asdl import opt_group_i
 from _devbuild.gen import runtime_asdl  # for cell
 from asdl import runtime
 from core import error
+from core.pyerror import e_usage, e_die, log
 from core import pyos
 from core import pyutil
-from core.pyerror import e_usage
-from core.pyutil import stderr_line
-from core import ui
-from core.pyerror import log, e_die
 from core import optview
+from core import ui
 from frontend import consts
 from frontend import match
 from mycpp import mylib
-from mycpp.mylib import tagswitch, iteritems, NewDict
+from mycpp.mylib import print_stderr, tagswitch, iteritems, NewDict
 from osh import split
 from pylib import os_path
 from pylib import path_stat
@@ -716,7 +715,7 @@ class MutableOpts(object):
       self.SetDeferredErrExit(b)
     else:
       if opt_num == option_i.verbose and b:
-        stderr_line('Warning: set -o verbose not implemented')
+        print_stderr('Warning: set -o verbose not implemented')
       self._SetArrayByNum(opt_num, b)
 
     # note: may FAIL before we get here.
@@ -730,7 +729,7 @@ class MutableOpts(object):
     self._SetOldOption(opt_name, b)
 
     UP_val = self.mem.GetValue('SHELLOPTS')
-    assert UP_val.tag == value_e.Str, UP_val
+    assert UP_val.tag_() == value_e.Str, UP_val
     val = cast(value__Str, UP_val)
     shellopts = val.s
 
@@ -968,7 +967,7 @@ def _GetWorkingDir():
   try:
     return posix.getcwd()
   except OSError as e:
-    e_die("Can't determine working directory: %s", pyutil.strerror(e))
+    e_die("Can't determine working directory: %s" % pyutil.strerror(e))
 
 
 class DebugFrame(object):
@@ -1324,7 +1323,7 @@ class Mem(object):
 
         d['call_spid'] = frame.call_spid
         if frame.call_spid != runtime.NO_SPID:  # first frame has this issue
-          span = self.arena.GetLineSpan(frame.call_spid)
+          span = self.arena.GetToken(frame.call_spid)
           line_id = span.line_id
           d['call_source'] = ui.GetLineSourceString(self.arena, line_id)
           d['call_line_num'] = self.arena.GetLineNumber(line_id)
@@ -1402,7 +1401,7 @@ class Mem(object):
     frame = NewDict()  # type: Dict[str, cell]
     self.var_stack.append(frame)
 
-    span = self.arena.GetLineSpan(def_spid)
+    span = self.arena.GetToken(def_spid)
     source_str = ui.GetLineSourceString(self.arena, span.line_id)
 
     # bash uses this order: top of stack first.
@@ -1602,7 +1601,7 @@ class Mem(object):
         # more common idiom is 'local -n ref=$1'.  Note that you can mutate
         # references themselves with local -n ref=new.
         if self.exec_opts.strict_nameref():
-          e_die('nameref %r is undefined', name)
+          e_die('nameref %r is undefined' % name)
         else:
           return cell, name_map, name  # fallback
 
@@ -1619,7 +1618,7 @@ class Mem(object):
     if not match.IsValidVarName(new_name):
       # e.g. '#' or '1' or ''
       if self.exec_opts.strict_nameref():
-        e_die('nameref %r contains invalid variable name %r', name, new_name)
+        e_die('nameref %r contains invalid variable name %r' % (name, new_name))
       else:
         # Bash has this odd behavior of clearing the nameref bit when
         # ref=#invalid#.  strict_nameref avoids it.
@@ -1631,7 +1630,7 @@ class Mem(object):
       ref_trail = [name]
     else:
       if new_name in ref_trail:
-        e_die('Circular nameref %s', ' -> '.join(ref_trail))
+        e_die('Circular nameref %s' % ' -> '.join(ref_trail))
     ref_trail.append(new_name)
 
     # 'declare -n' uses dynamic scope.  'setref' uses parent scope to avoid the
@@ -1689,6 +1688,7 @@ class Mem(object):
     with tagswitch(lval) as case:
       if case(lvalue_e.Named):
         lval = cast(lvalue__Named, UP_lval)
+        assert lval.name is not None
 
         if keyword_id == Id.KW_SetRef:
           # Hidden interpreter var with __ prefix.  Matches proc call in
@@ -1728,7 +1728,7 @@ class Mem(object):
             # sense anyway.
             if cell.readonly:
               # TODO: error context
-              e_die("Can't assign to readonly value %r", lval.name)
+              e_die("Can't assign to readonly value %r" % lval.name)
             cell.val = val  # CHANGE VAL
 
           # NOTE: Could be cell.flags |= flag_set_mask 
@@ -1789,7 +1789,7 @@ class Mem(object):
           return
 
         if cell.readonly:
-          e_die("Can't assign to readonly array", span_id=left_spid)
+          e_die("Can't assign to readonly array", loc.Span(left_spid))
 
         UP_cell_val = cell.val
         # undef[0]=y is allowed
@@ -1801,7 +1801,7 @@ class Mem(object):
           elif case2(value_e.Str):
             # s=x
             # s[1]=y  # invalid
-            e_die("Can't assign to items in a string", span_id=left_spid)
+            e_die("Can't assign to items in a string", loc.Span(left_spid))
 
           elif case2(value_e.MaybeStrArray):
             cell_val = cast(value__MaybeStrArray, UP_cell_val)
@@ -1829,8 +1829,9 @@ class Mem(object):
         # This could be an object, eggex object, etc.  It won't be
         # AssocArray shouldn because we query IsAssocArray before evaluating
         # sh_lhs_expr.  Could conslidate with s[i] case above
-        e_die("Value of type %s can't be indexed",
-              ui.ValType(cell.val), span_id=left_spid)
+        e_die("Value of type %s can't be indexed" % ui.ValType(cell.val),
+              loc.Span(left_spid))
+
 
       elif case(lvalue_e.Keyed):
         lval = cast(lvalue__Keyed, UP_lval)
@@ -1844,10 +1845,10 @@ class Mem(object):
         cell, name_map, _ = self._ResolveNameOrRef(lval.name, which_scopes,
                                                    is_setref)
         if cell.readonly:
-          e_die("Can't assign to readonly associative array", span_id=left_spid)
+          e_die("Can't assign to readonly associative array", loc.Span(left_spid))
 
         # We already looked it up before making the lvalue
-        assert cell.val.tag == value_e.AssocArray, cell
+        assert cell.val.tag_() == value_e.AssocArray, cell
         cell_val2 = cast(value__AssocArray, cell.val)
 
         cell_val2.d[lval.key] = rval.s
@@ -1972,7 +1973,7 @@ class Mem(object):
           if frame.call_spid == -2:
             strs.append('-')  # Bash does this to line up with main?
             continue
-          span = self.arena.GetLineSpan(frame.call_spid)
+          span = self.arena.GetToken(frame.call_spid)
           source_str = ui.GetLineSourceString(self.arena, span.line_id)
           strs.append(source_str)
         return value.MaybeStrArray(strs)  # TODO: Reuse this object too?
@@ -1986,14 +1987,14 @@ class Mem(object):
         if frame.call_spid == LINE_ZERO:
           strs.append('0')  # Bash does this to line up with main?
           continue
-        span = self.arena.GetLineSpan(frame.call_spid)
+        span = self.arena.GetToken(frame.call_spid)
         line_num = self.arena.GetLineNumber(span.line_id)
         strs.append(str(line_num))
       return value.MaybeStrArray(strs)  # TODO: Reuse this object too?
 
     if name == 'LINENO':
       assert self.current_spid != -1, self.current_spid
-      span = self.arena.GetLineSpan(self.current_spid)
+      span = self.arena.GetToken(self.current_spid)
       # TODO: maybe use interned GetLineNumStr?
       self.line_num.s = str(self.arena.GetLineNumber(span.line_id))
       return self.line_num

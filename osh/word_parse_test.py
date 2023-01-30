@@ -12,7 +12,7 @@ word_parse_test.py: Tests for word_parse.py
 import unittest
 
 from _devbuild.gen.id_kind_asdl import Id
-from _devbuild.gen.syntax_asdl import arith_expr_e, compound_word
+from _devbuild.gen.syntax_asdl import arith_expr_e, word_e, rhs_word_e
 from _devbuild.gen.types_asdl import lex_mode_e
 
 from asdl import runtime
@@ -65,7 +65,7 @@ def _assertSpanForWord(test, word_str):
   print(span_id)
 
   if span_id != runtime.NO_SPID:
-    span = arena.GetLineSpan(span_id)
+    span = arena.GetToken(span_id)
     print(span)
 
 
@@ -209,7 +209,7 @@ class WordParserTest(unittest.TestCase):
     w = _assertReadWord(self, '${var//pat}')  # no replacement
     op = _GetSuffixOp(self, w)
     self.assertUnquoted('pat', op.pat)
-    self.assertEqual(None, op.replace)
+    self.assertEqual(rhs_word_e.Empty, op.replace.tag_())
     self.assertEqual(Id.Lit_Slash, op.replace_mode)
 
     # replace with slash
@@ -430,11 +430,11 @@ class WordParserTest(unittest.TestCase):
   def testReadArithWord(self):
     w = _assertReadWord(self, '$(( (1+2) ))')
     child = w.parts[0].anode
-    self.assertEqual(arith_expr_e.Binary, child.tag)
+    self.assertEqual(arith_expr_e.Binary, child.tag_())
 
     w = _assertReadWord(self, '$(( (1+2) ))')
     child = w.parts[0].anode
-    self.assertEqual(arith_expr_e.Binary, child.tag)
+    self.assertEqual(arith_expr_e.Binary, child.tag_())
 
   def testReadArith(self):
     CASES = [
@@ -488,34 +488,39 @@ ls foo
 
 ls bar
 """)
+    def assertWord(w, id_, val):
+      self.assertEqual(1, len(w.parts))
+      part = w.parts[0]
+      self.assertEqual(id_, part.id)
+      self.assertEqual(val, part.val)
+
     print('--MULTI')
     w = w_parser.ReadWord(lex_mode_e.ShCommand)
-    parts = [Tok(Id.Lit_Chars, 'ls')]
-    test_lib.AssertAsdlEqual(self, compound_word(parts), w)
+    assertWord(w, Id.Lit_Chars, 'ls')
 
     w = w_parser.ReadWord(lex_mode_e.ShCommand)
-    parts = [Tok(Id.Lit_Chars, 'foo')]
-    test_lib.AssertAsdlEqual(self, compound_word(parts), w)
+    assertWord(w, Id.Lit_Chars, 'foo')
 
     w = w_parser.ReadWord(lex_mode_e.ShCommand)
-    t = Tok(Id.Op_Newline, None)
-    test_lib.AssertAsdlEqual(self, t, w)
+    self.assertEqual(word_e.Token, w.tag_())
+    self.assertEqual(Id.Op_Newline, w.id)
+    self.assertEqual(None, w.val)
 
     w = w_parser.ReadWord(lex_mode_e.ShCommand)
-    parts = [Tok(Id.Lit_Chars, 'ls')]
-    test_lib.AssertAsdlEqual(self, compound_word(parts), w)
+    assertWord(w, Id.Lit_Chars, 'ls')
 
     w = w_parser.ReadWord(lex_mode_e.ShCommand)
-    parts = [Tok(Id.Lit_Chars, 'bar')]
-    test_lib.AssertAsdlEqual(self, compound_word(parts), w)
+    assertWord(w, Id.Lit_Chars, 'bar')
 
     w = w_parser.ReadWord(lex_mode_e.ShCommand)
-    t = Tok(Id.Op_Newline, None)
-    test_lib.AssertAsdlEqual(self, t, w)
+    self.assertEqual(word_e.Token, w.tag_())
+    self.assertEqual(Id.Op_Newline, w.id)
+    self.assertEqual(None, w.val)
 
     w = w_parser.ReadWord(lex_mode_e.ShCommand)
-    t = Tok(Id.Eof_Real, '')
-    test_lib.AssertAsdlEqual(self, t, w)
+    self.assertEqual(word_e.Token, w.tag_())
+    self.assertEqual(Id.Eof_Real, w.id)
+    self.assertEqual('', w.val)
 
   def testUnicode(self):
     words = 'z \xce\xbb \xe4\xb8\x89 \xf0\x9f\x98\x98'

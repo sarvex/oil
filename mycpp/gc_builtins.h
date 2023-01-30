@@ -7,6 +7,9 @@
 #ifndef GC_BUILTINS_H
 #define GC_BUILTINS_H
 
+#include "mycpp/common.h"
+#include "mycpp/gc_obj.h"
+
 class Str;
 
 class _ExceptionOpaque {
@@ -97,21 +100,16 @@ class OSError : public IOError_OSError {
   }
 };
 
+class SystemExit : public _ExceptionOpaque {
+ public:
+  explicit SystemExit(int code) : _ExceptionOpaque(), code(code) {
+  }
+  int code;
+};
+
 void print(Str* s);
 
-void println_stderr(Str* s);
-
 Str* repr(Str* s);
-
-// For hnode::External in asdl/format.py.  TODO: Remove this when that is
-// removed.
-inline Str* repr(void* obj) {
-  FAIL(kNotImplemented);
-}
-
-inline Str* str(double f) {
-  FAIL(kNotImplemented);
-}
 
 Str* str(int i);
 

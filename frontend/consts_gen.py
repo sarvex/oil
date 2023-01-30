@@ -13,6 +13,7 @@ from __future__ import print_function
 import collections
 import sys
 
+from asdl import gen_cpp
 from core.pyerror import log
 from frontend import id_kind_def
 from frontend import builtin_def
@@ -25,10 +26,10 @@ def _CreateModule(id_spec, ids):
   """
   from asdl import ast
 
-  id_sum = ast.Sum([ast.Constructor(name) for name, _ in ids])
+  id_sum = ast.SimpleSum([ast.Constructor(name) for name, _ in ids])
 
   variants2 = [ast.Constructor(name) for name in id_spec.kind_name_list]
-  kind_sum = ast.Sum(variants2)
+  kind_sum = ast.SimpleSum(variants2)
 
   id_ = ast.TypeDecl('Id', id_sum)
   kind_ = ast.TypeDecl('Kind', kind_sum)
@@ -177,6 +178,20 @@ Str* %s(Str* c) {
 """)
 
 
+def GenStrList(l, name, out):
+  element_globals = []
+  for i, elem in enumerate(l):
+    global_name = "k%s_%d" % (name, i)
+    out('GLOBAL_STR(%s, "%s");', global_name, elem)
+    element_globals.append(global_name)
+
+  lit = ' COMMA '.join(element_globals)
+  out(
+    'GLOBAL_LIST(Str*, %d, %s, {%s});\n',
+    len(l), name, lit
+  )
+
+
 def main(argv):
   try:
     action = argv[1]
@@ -206,8 +221,6 @@ def main(argv):
       print('#define id__%s %s' % (name, id_int))
 
   elif action == 'cpp':
-    from asdl import gen_cpp
-
     schema_ast = _CreateModule(ID_SPEC, ids)
 
     out_prefix = argv[2]
@@ -218,6 +231,8 @@ def main(argv):
 #define ID_KIND_ASDL_H
 
 namespace id_kind_asdl {
+
+#define ASDL_NAMES struct
 """)
 
       v = gen_cpp.ClassDefVisitor(f, e_suffix=False,
@@ -297,6 +312,11 @@ namespace consts {
       for name in LIST_INT:
         out('extern List<int>* %s;', name)
 
+      out('extern List<Str*>* BUILTIN_NAMES;')
+      out('extern List<Str*>* OSH_KEYWORD_NAMES;')
+      out('extern List<Str*>* SET_OPTION_NAMES;')
+      out('extern List<Str*>* SHOPT_OPTION_NAMES;')
+
       out("""\
 
 extern int NO_INDEX;
@@ -332,7 +352,7 @@ Tuple2<runtime_asdl::state_t, runtime_asdl::emit_t> IfsEdge(runtime_asdl::state_
       out("""\
 #include "_gen/frontend/consts.h"
 
-namespace Id = id_kind_asdl::Id;
+using id_kind_asdl::Id;
 using id_kind_asdl::Kind;
 using types_asdl::redir_arg_type_e;
 using types_asdl::bool_arg_type_e;
@@ -425,7 +445,7 @@ Kind GetKind(id_kind_asdl::Id_t id) {
 
       from frontend import lexer_def  # break circular dep
       GenStringMembership('IsControlFlow', lexer_def.CONTROL_FLOW_NAMES, f)
-      GenStringMembership('IsKeyword', lexer_def.OSH_KEYWORD_NAMES, f)
+      GenStringMembership('IsKeyword', consts.OSH_KEYWORD_NAMES, f)
 
       GenCharLookup('LookupCharC', consts._ONE_CHAR_C, f, required=True)
       GenCharLookup('LookupCharPrompt', consts._ONE_CHAR_PROMPT, f)
@@ -496,6 +516,11 @@ Tuple2<state_t, emit_t> IfsEdge(state_t state, runtime_asdl::char_kind_t ch) {
   return Tuple2<state_t, emit_t>(new_state, emit);
 }
 """)
+
+      GenStrList(consts.BUILTIN_NAMES, 'BUILTIN_NAMES', out)
+      GenStrList(consts.OSH_KEYWORD_NAMES, 'OSH_KEYWORD_NAMES', out)
+      GenStrList(consts.SET_OPTION_NAMES, 'SET_OPTION_NAMES', out)
+      GenStrList(consts.SHOPT_OPTION_NAMES, 'SHOPT_OPTION_NAMES', out)
 
       out("""\
 }  // namespace consts

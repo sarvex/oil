@@ -125,13 +125,13 @@ void SetSigwinchCode(int code);
 
 void InitShell();
 
-Tuple2<Str*, int> MakeDirCacheKey(Str* path);
+Tuple2<Str*, int>* MakeDirCacheKey(Str* path);
 
 }  // namespace pyos
 
 namespace pyutil {
 
-bool IsValidCharEscape(int c);
+bool IsValidCharEscape(Str* c);
 Str* ChArrayToString(List<int>* ch_array);
 
 class _ResourceLoader {

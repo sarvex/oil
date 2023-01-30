@@ -57,7 +57,7 @@ REPO_ROOT=$(cd $(dirname $0)/.. ; pwd)
 OIL_VERSION=$(head -n 1 oil-version.txt)
 
 source devtools/common.sh  # banner
-source benchmarks/common.sh  # BENCHMARK_DATA_OIL_NATIVE, OSH_CPP_BENCHMARK_DATA
+source benchmarks/common.sh  # BENCHMARK_DATA_OILS, OSH_CPP_BENCHMARK_DATA
                              # redefines OIL_VERSION as readonly
 
 readonly OSH_RELEASE_BINARY=$REPO_ROOT/_tmp/oil-tar-test/oil-$OIL_VERSION/_bin/osh
@@ -128,7 +128,6 @@ auto-machine2() {
 #         wild.wwz/
 #         unit.wwz/
 #         other.wwz/
-#           osh2oil.txt
 #           gold.txt
 #           parse-errors.txt
 #           runtime-errors.txt
@@ -206,7 +205,7 @@ readonly HAVE_ROOT=1
 
 readonly -a OTHER_TESTS=(
   gold 
-  osh2oil 
+  ysh-prettify
   parse-errors runtime-errors
   oil-runtime-errors
   arena
@@ -332,7 +331,7 @@ _install() {
 }
 
 _build-oils-benchmark-data() {
-  pushd $BENCHMARK_DATA_OIL_NATIVE
+  pushd $BENCHMARK_DATA_OILS
   _build/oils.sh '' opt SKIP_REBUILD
   _build/oils.sh '' dbg SKIP_REBUILD  # for metrics/native-code.sh
   popd
@@ -611,8 +610,9 @@ sync-old-tar() {
 deploy-tar() {
   mkdir -p $DOWNLOAD_DIR
 
-  # Also copy oils-for-unix
-  cp -v _release/oil-*$OIL_VERSION.tar.* $DOWNLOAD_DIR
+  cp -v \
+    _release/oil-$OIL_VERSION.tar.* _release/oils-for-unix-$OIL_VERSION.tar.* \
+    $DOWNLOAD_DIR
 
   ls -l $DOWNLOAD_DIR
 }

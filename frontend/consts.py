@@ -26,15 +26,21 @@ OIL_UPGRADE = option_def.OIL_UPGRADE
 OIL_ALL = option_def.OIL_ALL
 DEFAULT_TRUE = option_def.DEFAULT_TRUE
 
-SHOPT_OPTION_NUMS = option_def.SHOPT_OPTION_NUMS
 PARSE_OPTION_NUMS = option_def.PARSE_OPTION_NUMS
 
-SET_OPTION_NUMS = option_def.SET_OPTION_NUMS
-SET_OPTION_NAMES = option_def.SET_OPTION_NAMES  # used for assertions only
+SET_OPTION_NUMS = [opt.index for opt in option_def._SORTED if opt.builtin == 'set']
+SET_OPTION_NAMES = [opt.name for opt in option_def._SORTED if opt.builtin == 'set']
+
+SHOPT_OPTION_NUMS = [opt.index for opt in option_def._SORTED if opt.builtin == 'shopt']
+SHOPT_OPTION_NAMES = [opt.name for opt in option_def._SORTED if opt.builtin == 'shopt']
 
 VISIBLE_SHOPT_NUMS = option_def.VISIBLE_SHOPT_NUMS  # used to print
 
 BUILTIN_NAMES = builtin_def.BUILTIN_NAMES  # Used by builtin_comp.py
+
+# The 'compen' and 'type' builtins introspect on keywords and builtins.
+OSH_KEYWORD_NAMES = [name for _, name, _ in lexer_def._KEYWORDS]
+OSH_KEYWORD_NAMES.append('{')  # not in our lexer list
 
 
 def GetKind(id_):
@@ -183,7 +189,7 @@ def IsControlFlow(name):
 
 def IsKeyword(name):
   # type: (str) -> bool
-  return name in lexer_def.OSH_KEYWORD_NAMES
+  return name in OSH_KEYWORD_NAMES
 
 
 #

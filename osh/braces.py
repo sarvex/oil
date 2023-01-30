@@ -23,6 +23,7 @@ from _devbuild.gen.syntax_asdl import (
     word_part__BracedTuple, word_part__BracedRange,
 )
 from core.pyerror import log, p_die
+from frontend import lexer
 from frontend import match
 from mycpp.mylib import tagswitch
 
@@ -55,10 +56,10 @@ class _RangeParser(object):
     char_range = Char Dots Char step?
     range = (int_range | char_range) Eof  # ensure no extra tokens!
   """
-  def __init__(self, lexer, span_id):
-    # type: (SimpleLexer, int) -> None
+  def __init__(self, lexer, blame_tok):
+    # type: (SimpleLexer, Token) -> None
     self.lexer = lexer
-    self.span_id = span_id
+    self.blame_tok = blame_tok
 
     self.token_type = Id.Undefined_Tok
     self.token_val = ''
@@ -81,7 +82,7 @@ class _RangeParser(object):
     self._Next()  # past Dots
     step = int(self._Eat(Id.Range_Int))
     if step == 0:
-      p_die("Step can't be 0", span_id=self.span_id)
+      p_die("Step can't be 0", self.blame_tok)
     return step
 
   def _ParseRange(self, range_kind):
@@ -113,14 +114,14 @@ class _RangeParser(object):
         if part.step == NO_STEP:
           part.step = 1
         if part.step <= 0:  # 0 step is not allowed
-          p_die('Invalid step %d for ascending integer range', part.step,
-                span_id=self.span_id)
+          p_die('Invalid step %d for ascending integer range' % part.step,
+                self.blame_tok)
       elif start > end:
         if part.step == NO_STEP:
           part.step = -1
         if part.step >= 0:  # 0 step is not allowed
-          p_die('Invalid step %d for descending integer range', part.step,
-                span_id=self.span_id)
+          p_die('Invalid step %d for descending integer range' % part.step,
+                self.blame_tok)
       else:
         # {1..1}  singleton range is dumb but I suppose consistent
         part.step = 1
@@ -137,14 +138,14 @@ class _RangeParser(object):
         if part.step == NO_STEP:
           part.step = 1
         if part.step <= 0:  # 0 step is not allowed
-          p_die('Invalid step %d for ascending character range', part.step,
-                span_id=self.span_id)
+          p_die('Invalid step %d for ascending character range' % part.step,
+                self.blame_tok)
       elif start_num > end_num:
         if part.step == NO_STEP:
           part.step = -1
         if part.step >= 0:  # 0 step is not allowed
-          p_die('Invalid step %d for descending character range', part.step,
-                span_id=self.span_id)
+          p_die('Invalid step %d for descending character range' % part.step,
+                self.blame_tok)
       else:
         # {a..a}  singleton range is dumb but I suppose consistent
         part.step = 1
@@ -153,7 +154,7 @@ class _RangeParser(object):
       upper1 = part.start.isupper()
       upper2 = part.end.isupper()
       if upper1 != upper2:
-        p_die('Mismatched cases in character range', span_id=self.span_id)
+        p_die('Mismatched cases in character range', self.blame_tok)
 
     else:
       raise _NotARange('')
@@ -167,7 +168,7 @@ def _RangePartDetect(tok):
   # type: (Token) -> Optional[word_part_t]
   """Parse the token and return a new word_part if it looks like a range."""
   lexer = match.BraceRangeLexer(tok.val)
-  p = _RangeParser(lexer, tok.span_id)
+  p = _RangeParser(lexer, tok)
   try:
     part = p.Parse()
   except _NotARange as e:
@@ -434,8 +435,11 @@ def _ExpandPart(parts,  # type: List[word_part_t]
         for suffix in suffixes:
           out_parts_ = []  # type: List[word_part_t]
           out_parts_.extend(prefix)
-          # Preserve span_id from the original
-          t = Token(Id.Lit_Chars, expand_part.spids[0], s)
+
+          # TODO: Does it help to preserve location info?
+          # t = Token(Id.Lit_Chars, expand_part.spids[0], s)
+          t = lexer.DummyToken(Id.Lit_Chars, s)
+
           out_parts_.append(t)
           out_parts_.extend(suffix)
           out.append(out_parts_)

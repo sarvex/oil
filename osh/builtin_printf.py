@@ -13,7 +13,7 @@ from _devbuild.gen.runtime_asdl import (
 )
 from _devbuild.gen.syntax_asdl import (
     printf_part, printf_part_e, printf_part_t, printf_part__Literal,
-    printf_part__Percent, source, Token,
+    printf_part__Percent, source, Token, loc
 )
 from _devbuild.gen.types_asdl import lex_mode_e, lex_mode_t
 
@@ -25,6 +25,7 @@ from core import state
 from core import vm
 from frontend import flag_spec
 from frontend import consts
+from frontend import lexer
 from frontend import match
 from frontend import reader
 from mycpp import mylib
@@ -39,7 +40,6 @@ from typing import Dict, List, TYPE_CHECKING, cast
 if TYPE_CHECKING:
   from core import ui
   from core.state import Mem
-  from frontend.lexer import Lexer
   from frontend import parse_lib
 
 _ = log
@@ -58,7 +58,7 @@ class _FormatStringParser(object):
   Maybe: bash also supports %(strftime)T
   """
   def __init__(self, lexer):
-    # type: (Lexer) -> None
+    # type: (lexer.Lexer) -> None
     self.lexer = lexer
 
     # uninitialized values
@@ -83,7 +83,7 @@ class _FormatStringParser(object):
       # space and + could be implemented
       flag = self.cur_token.val
       if flag in '# +':
-        p_die("osh printf doesn't support the %r flag", flag, token=self.cur_token)
+        p_die("osh printf doesn't support the %r flag" % flag, self.cur_token)
 
       part.flags.append(self.cur_token)
       self._Next(lex_mode_e.PrintfPercent)
@@ -104,16 +104,16 @@ class _FormatStringParser(object):
 
       # ADDITIONAL VALIDATION outside the "grammar".
       if part.type.val in 'eEfFgG':
-        p_die("osh printf doesn't support floating point", token=part.type)
+        p_die("osh printf doesn't support floating point", part.type)
       # These two could be implemented.  %c needs utf-8 decoding.
       if part.type.val == 'c':
-        p_die("osh printf doesn't support single characters (bytes)", token=part.type)
+        p_die("osh printf doesn't support single characters (bytes)", part.type)
 
     elif self.token_type == Id.Unknown_Tok:
-      p_die('Invalid printf format character', token=self.cur_token)
+      p_die('Invalid printf format character', self.cur_token)
 
     else:
-      p_die('Expected a printf format character', token=self.cur_token)
+      p_die('Expected a printf format character', self.cur_token)
 
     return part
 
@@ -276,8 +276,9 @@ class Printf(vm._Builtin):
               if id_ == Id.Eol_Tok:  # Note: This is really a NUL terminator
                 break
 
-              # TODO: add span_id from argv
-              tok = Token(id_, runtime.NO_SPID, tok_val)
+              # Note: DummyToken is OK because EvalCStringToken() doesn't have
+              # any syntax errors.
+              tok = lexer.DummyToken(id_, tok_val)
               p = word_compile.EvalCStringToken(tok)
 
               # Unusual behavior: '\c' aborts processing!
@@ -355,8 +356,8 @@ class Printf(vm._Builtin):
             else:  # typ in 'diouxX'
               # Disallowed because it depends on 32- or 64- bit
               if d < 0 and typ in 'ouxX':
-                e_die("Can't format negative number %d with %%%s",
-                      d, typ, span_id=part.type.span_id)
+                e_die("Can't format negative number %d with %%%s" % (d, typ), 
+                      loc.Span(part.type.span_id))
 
               if typ == 'o':
                 s = mylib.octal(d)

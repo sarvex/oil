@@ -14,17 +14,18 @@ from _devbuild.gen.syntax_asdl import (
     word_part__ArithSub, word_part__ExtGlob,
     word_part__Splice, word_part__FuncCall, word_part__ExprSub,
 
-    word_e, word_t, word__BracedTree, word__String,
+    word_e, word_t, word_str, word__BracedTree, word__String,
     sh_lhs_expr_e, sh_lhs_expr_t, sh_lhs_expr__Name, sh_lhs_expr__IndexedName,
+    assoc_pair,
 )
 from asdl import runtime
 from core.pyerror import log
 from frontend import consts
-from mycpp.mylib import tagswitch
+from frontend import lexer
+from mycpp.mylib import tagswitch, StrFromC
 
 from typing import Tuple, Optional, List, Any, cast, TYPE_CHECKING
 if TYPE_CHECKING:
-  from core.error import _ErrorWithLocation
   from osh.word_parse import WordParser
 
 _ = log
@@ -170,11 +171,11 @@ def LeftMostSpanForPart(part):
 
     elif case(word_part_e.BracedVarSub):
       part = cast(braced_var_sub, UP_part)
-      return part.spids[0]
+      return part.left.span_id
 
     elif case(word_part_e.CommandSub):
       part = cast(command_sub, UP_part)
-      return part.spids[0]
+      return part.left_token.span_id
 
     elif case(word_part_e.TildeSub):
       part = cast(word_part__TildeSub, UP_part)
@@ -231,11 +232,11 @@ def _RightMostSpanForPart(part):
 
     elif case(word_part_e.SingleQuoted):
       part = cast(single_quoted, UP_part)
-      return part.spids[1]  # right '
+      return part.right.span_id  # right '
 
     elif case(word_part_e.DoubleQuoted):
       part = cast(double_quoted, UP_part)
-      return part.spids[1]  # right "
+      return part.right.span_id  # right "
 
     elif case(word_part_e.SimpleVarSub):
       part = cast(simple_var_sub, UP_part)
@@ -243,13 +244,13 @@ def _RightMostSpanForPart(part):
 
     elif case(word_part_e.BracedVarSub):
       part = cast(braced_var_sub, UP_part)
-      spid = part.spids[1]  # right }
+      spid = part.right.span_id
       assert spid != runtime.NO_SPID
       return spid
 
     elif case(word_part_e.CommandSub):
       part = cast(command_sub, UP_part)
-      return part.spids[1]
+      return part.right.span_id
 
     elif case(word_part_e.TildeSub):
       return runtime.NO_SPID
@@ -283,9 +284,6 @@ def LeftMostSpanForWord(w):
       tok = cast(Token, UP_w)
       return tok.span_id
 
-    elif case(word_e.Empty):
-      return runtime.NO_SPID
-
     elif case(word_e.BracedTree):
       w = cast(word__BracedTree, UP_w)
       # This should always have one part?
@@ -314,9 +312,6 @@ def RightMostSpanForWord(w):
       else:
         end = w.parts[-1]
         return _RightMostSpanForPart(end)
-
-    elif case(word_e.Empty):
-      return runtime.NO_SPID
 
     elif case(word_e.Token):
       tok = cast(Token, UP_w)
@@ -357,7 +352,7 @@ def TildeDetect(UP_w):
   - It's possible to write this in a mutating style, since only the first token
     is changed.  But note that we CANNOT know this during lexing.
   """
-  # NOTE: BracedTree, Empty, etc. can't be tilde expanded
+  # BracedTree can't be tilde expanded
   if UP_w.tag_() != word_e.Compound:
     return None
 
@@ -551,7 +546,7 @@ def DetectShAssignment(w):
 
 
 def DetectAssocPair(w):
-  # type: (compound_word) -> Optional[Tuple[compound_word, compound_word]]
+  # type: (compound_word) -> Optional[assoc_pair]
   """
   Like DetectShAssignment, but for A=(['k']=v ['k2']=v)
 
@@ -572,8 +567,7 @@ def DetectAssocPair(w):
       value = compound_word(parts[i+1:])  # $a$b from
 
       # Type-annotated intermediate value for mycpp translation
-      ret = key, value  # type: Optional[Tuple[compound_word, compound_word]]
-      return ret
+      return assoc_pair(key, value)
 
   return None
 
@@ -729,7 +723,9 @@ def IsVarSub(w):
 
 def SpanForLhsExpr(node):
   # type: (sh_lhs_expr_t) -> int
-
+  """
+  Currently unused?  Will be useful for translating Oil assignment
+  """
   # This switch is annoying but we don't have inheritance from the sum type
   # (because of diamond issue).  We might change the schema later, which maeks
   # it moot.  See the comment in frontend/syntax.asdl.
@@ -737,38 +733,21 @@ def SpanForLhsExpr(node):
   with tagswitch(node) as case:
     if case(sh_lhs_expr_e.Name):
       node = cast(sh_lhs_expr__Name, UP_node)
-      spids = node.spids
+      return node.left.span_id
     elif case(sh_lhs_expr_e.IndexedName):
       node = cast(sh_lhs_expr__IndexedName, UP_node)
-      spids = node.spids
+      return node.left.span_id
     else:
       # Should not see UnparsedIndex
       raise AssertionError()
 
-  if len(spids):
-    return spids[0]
-  else:
-    return runtime.NO_SPID  
-
-
-def SpanIdFromError(error):
-  # type: (_ErrorWithLocation) -> int
-  if error.span_id != runtime.NO_SPID:
-    return error.span_id
-  if error.token:
-    return error.token.span_id
-  if error.part:
-    return LeftMostSpanForPart(error.part)
-  if error.word:
-    return LeftMostSpanForWord(error.word)
-
-  return runtime.NO_SPID
+  raise AssertionError()
 
 
 # Doesn't translate with mycpp because of dynamic %
 def ErrorWord(error_str):
   # type: (str) -> compound_word
-  t = Token(Id.Lit_Chars, runtime.NO_SPID, error_str)
+  t = lexer.DummyToken(Id.Lit_Chars, error_str)
   return compound_word([t])
 
 
@@ -783,8 +762,7 @@ def Pretty(w):
     else:
       return repr(w.s)
   else:
-    # internal representation
-    return str(w)
+    return StrFromC(word_str(w.tag_()))  # tag name
 
 
 class ctx_EmitDocToken(object):

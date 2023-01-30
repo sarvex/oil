@@ -9,49 +9,39 @@ set -o errexit
 
 source devtools/common.sh
 
-readonly MORE_MANIFEST=devtools/typecheck-more.txt
-
 typecheck-files() {
   # The --follow-imports=silent option allows adding type annotations
   # in smaller steps without worrying about triggering a bunch of
   # errors from imports.  In the end, we may want to remove it, since
   # everything will be annotated anyway.  (that would require
   # re-adding assert-one-error and its associated cruft, though).
-  $0 typecheck --follow-imports=silent $MYPY_FLAGS "$@"
+
+  typecheck --follow-imports=silent $MYPY_FLAGS "$@"
+  echo
 }
 
+typecheck-oil() {
+  # TODO: remove --no-warn-unused-ignores and type: ignore in
+  # osh/builtin_comp.py after help_.py import isn't conditional
+
+  cat _build/NINJA/oils_cpp/typecheck.txt \
+    | xargs -- $0 typecheck-files --no-warn-unused-ignores 
+}
+
+# NOTE: Becoming obsolete as typecheck filters in build/dynamic-deps.sh are whittled down
 typecheck-more() {
-  egrep -v "$COMMENT_RE" $MORE_MANIFEST | xargs -- $0 typecheck-files
+  egrep -v "$COMMENT_RE" devtools/typecheck-more.txt \
+    | xargs -- $0 typecheck-files
 }
 
-typecheck-files-2() {
-  local manifest=$1
-  local strict_none=${2:-}
+check-all() {
+  ### Run this locally
 
-  # 150 errors left without those flags.  But it doesn't impede translating to
-  # C++ since you have nullptr.  Although List[Optional[int]] may be an issue.
-  #local flags=''
-  local flags
-  if test -n "$strict_none"; then
-    flags='--strict'
-  else
-    flags=$MYPY_FLAGS
-  fi
+  typecheck-oil 
 
-  local log_path=_tmp/err.txt
-  set +o errexit
-  cat $manifest | xargs -- $0 typecheck --follow-imports=silent $flags >$log_path
-  local status=$?
-  set -o errexit
-  if test $status -eq 0; then
-    echo 'OK'
-  else
-    echo
-    cat $log_path
-    echo
-    echo 'FAIL'
-    return 1
-  fi
+  # Ad hoc list of additional files
+  # No more files for now.  Could do tools/osh2oil.py
+  # typecheck-more
 }
 
 soil-run() {
@@ -62,13 +52,7 @@ soil-run() {
   # Generate oils_cpp dependencies.  Though this is overly aggressive
   ./NINJA-config.sh
 
-  banner 'typecheck oils_cpp'
-  typecheck-files-2 _build/NINJA/oils_cpp/typecheck.txt
-
-  # Ad hoc list of additional files
-  banner 'typecheck More'
-  typecheck-more
+  check-all
 }
-
 
 "$@"

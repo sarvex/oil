@@ -3,196 +3,161 @@ error.py
 """
 from __future__ import print_function
 
-from mycpp import mylib
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+  from _devbuild.gen.syntax_asdl import loc_t
 
-from typing import Any, TYPE_CHECKING
-if TYPE_CHECKING:  # avoid circular build deps
-  from _devbuild.gen.syntax_asdl import Token, word_part_t, word_t
 
 # Break circular dependency.
 #from asdl import runtime
 NO_SPID = -1
 
-
-class _ControlFlow(Exception):
-  """Internal execption for control flow.
-
-  break and continue are caught by loops, return is caught by functions.
-
-  NOTE: I tried representing this in ASDL, but in Python the base class has to
-  be BaseException.  Also, 'Token' is in syntax.asdl but not runtime.asdl.
-
-  cflow =
-    -- break, continue, return, exit
-    Shell(Token keyword, int arg)
-    -- break, continue
-  | OilLoop(Token keyword)
-    -- return
-  | OilReturn(Token keyword, value val)
+class Usage(Exception):
+  """For flag parsing errors in builtins and main()
+  
+  Called by e_usage().  TODO: Should settle on a single interface that can be
+  translated.  Sometimes we use 'raise error.Usage()'
   """
+  def __init__(self, msg, span_id=NO_SPID):
+    # type: (str, int) -> None
+    self.msg = msg
+    self.span_id = span_id
 
-  def __init__(self, token, arg):
-    # type: (Token, int) -> None
-    """
-    Args:
-      token: the keyword token
-    """
-    self.token = token
-    self.arg = arg
 
-  def IsReturn(self):
+class _ErrorWithLocation(Exception):
+  """A parse error that can be formatted.
+
+  Formatting is in ui.PrintError.
+  """
+  def __init__(self, msg, location):
+    # type: (str, loc_t) -> None
+    #Exception.__init__(self)
+    self.msg = msg
+    self.location = location
+
+  def HasLocation(self):
     # type: () -> bool
+    #print('*** %r', self.location)
 
-    from _devbuild.gen.id_kind_asdl import Id  # TODO: fix circular dep
-    return self.token.id == Id.ControlFlow_Return
+    # TODO: move log() to mycpp/mylib.py, and put this at the top
+    from _devbuild.gen.syntax_asdl import loc_e
 
-  def IsBreak(self):
-    # type: () -> bool
+    if self.location:
+      return self.location.tag_() != loc_e.Missing
+    else:
+      return False
 
-    from _devbuild.gen.id_kind_asdl import Id  # TODO: fix circular dep
-    return self.token.id == Id.ControlFlow_Break
-
-  def IsContinue(self):
-    # type: () -> bool
-
-    from _devbuild.gen.id_kind_asdl import Id  # TODO: fix circular dep
-    return self.token.id == Id.ControlFlow_Continue
-
-  def StatusCode(self):
-    # type: () -> int
-    assert self.IsReturn()
-    # All shells except dash do this truncation.
-    # turn 257 into 1, and -1 into 255.
-    return self.arg & 0xff
+  def UserErrorString(self):
+    # type: () -> str
+    return self.msg
 
   def __repr__(self):
     # type: () -> str
-    return '<_ControlFlow %s>' % self.token
+    return '<%s %r>' % (self.msg, self.location)
 
 
-if mylib.PYTHON:
+class Runtime(Exception):
+  """An error that's meant to be caught, i.e. it's non-fatal.
+  
+  Thrown by core/state.py and caught by builtins
+  """
 
-  class Usage(Exception):
-    """Raised by builtins upon flag parsing error."""
+  def __init__(self, msg):
+    # type: (str) -> None
+    self.msg = msg
 
-    # TODO: Should this be _ErrorWithLocation?  Probably, even though we only use
-    # 'span_id'.
-    def __init__(self, msg, span_id=NO_SPID):
-      # type: (str, int) -> None
-      self.msg = msg
-      self.span_id = span_id
-
-
-  class _ErrorWithLocation(Exception):
-    """A parse error that can be formatted.
-
-    Formatting is in ui.PrintError.
-    """
-    def __init__(self, msg, *args, **kwargs):
-      # type: (str, *Any, **Any) -> None
-      Exception.__init__(self)
-      self.msg = msg
-      self.args = args
-      # NOTE: We use a kwargs dict because Python 2 doesn't have keyword-only
-      # args.
-      # TODO: Remove these and create a location type.  I think
-      # word_.SpanIdFromError() or LocationFromeError can be called when
-      # CREATING this exception, not in core/ui.py.
-      self.span_id = kwargs.pop('span_id', NO_SPID)  # type: int
-      self.token = kwargs.pop('token', None)  # type: Token
-      self.part = kwargs.pop('part', None)  # type: word_part_t
-      self.word = kwargs.pop('word', None)  # type: word_t
-
-      # Runtime errors have a default status of 1.  Parse errors return 2
-      # explicitly.
-      self.exit_status = kwargs.pop('status', 1)  # type: int
-      self.show_code = kwargs.pop('show_code', False)  # type: bool
-      if kwargs:
-        raise AssertionError('Invalid keyword args %s' % kwargs)
-
-    def HasLocation(self):
-      # type: () -> bool
-      return bool(self.span_id != NO_SPID or
-                  self.token or self.part or self.word)
-
-    def ExitStatus(self):
-      # type: () -> int
-      return self.exit_status
-
-    def __repr__(self):
-      # type: () -> str
-      return '<%s %s %r %r %s>' % (
-          self.msg, self.args, self.token, self.word, self.exit_status)
-
-    def __str__(self):
-      # type: () -> str
-      # The default doesn't work very well?
-      return repr(self)
-
-    def UserErrorString(self):
-      # type: () -> str
-      return self.msg % self.args
+  def UserErrorString(self):
+    # type: () -> str
+    return self.msg
 
 
-# Need a better constructor
-if mylib.PYTHON:
-  class Parse(_ErrorWithLocation):
-    """Used in the parsers."""
-
-  class RedirectEval(_ErrorWithLocation):
-    """Used in the CommandEvaluator.
-
-    A bad redirect causes the SimpleCommand to return with status 1.  To make it
-    fatal, use set -o errexit.
-    """
-
-  class Runtime(_ErrorWithLocation):
-    """A non-fatal runtime error, e.g. for builtins."""
+class Parse(_ErrorWithLocation):
+  """Used in the parsers."""
+  def __init__(self, msg, location):
+    # type: (str, loc_t) -> None
+    _ErrorWithLocation.__init__(self, msg, location)
 
 
-  class FatalRuntime(_ErrorWithLocation):
-    """An exception that propagates to the top level.
+class FailGlob(_ErrorWithLocation):
+  """Raised when a glob matches nothing when failglob is set.
 
-    Used in the evaluators, and also also used in test builtin for invalid
-    argument.
-    """
+  Meant to be caught.
+  """
 
-  class FailGlob(FatalRuntime):
-    """Raised when a glob matches nothing when failglob is set."""
+  def __init__(self, msg, location):
+    # type: (str, loc_t) -> None
+    _ErrorWithLocation.__init__(self, msg, location)
 
 
-  class Strict(FatalRuntime):
-    """Depending on shell options, these errors may be caught and ignored.
+class RedirectEval(_ErrorWithLocation):
+  """Used in the CommandEvaluator.
 
-    For example, if options like these are ON:
+  A bad redirect causes the SimpleCommand to return with status 1.  To make it
+  fatal, use set -o errexit.
+  """
+  def __init__(self, msg, location):
+    # type: (str, loc_t) -> None
+    _ErrorWithLocation.__init__(self, msg, location)
 
-      set -o strict_arith
-      set -o strict_word_eval
 
-    then we re-raise the error so it's caught by the top level.  Otherwise
-    we catch it and return a dummy value like '' or -1 (i.e. what bash commonly
-    does.)
+class FatalRuntime(_ErrorWithLocation):
+  """An exception that propagates to the top level.
 
-    TODO: Have levels, like:
+  Used in the evaluators, and also also used in test builtin for invalid
+  argument.
+  """
+  def __init__(self, exit_status, msg, location):
+    # type: (int, str, loc_t) -> None
+    _ErrorWithLocation.__init__(self, msg, location)
+    self.exit_status = exit_status
 
-    OIL_STRICT_PRINT=2   # print warnings at level 2 and above
-    OIL_STRICT_DIE=1  # abort the program at level 1 and above
-    """
+  def ExitStatus(self):
+    # type: () -> int
+    return self.exit_status
 
-  class ErrExit(FatalRuntime):
-    """For set -e.
 
-    Travels between WordEvaluator and CommandEvaluator.
-    """
+class Strict(FatalRuntime):
+  """Depending on shell options, these errors may be caught and ignored.
 
-  class Expr(FatalRuntime):
-    """ e.g. KeyError, IndexError, ZeroDivisionError """
+  For example, if options like these are ON:
 
-    def ExitStatus(self):
-      # type: () -> int
-      """For both the caught and uncaught case.
-      
-      Caught: try sets _status register to 3
-      Uncaught: shell exits with status 3
-      """
-      return 3
+    set -o strict_arith
+    set -o strict_word_eval
+
+  then we re-raise the error so it's caught by the top level.  Otherwise
+  we catch it and return a dummy value like '' or -1 (i.e. what bash commonly
+  does.)
+
+  TODO: Have levels, like:
+
+  OIL_STRICT_PRINT=2   # print warnings at level 2 and above
+  OIL_STRICT_DIE=1  # abort the program at level 1 and above
+  """
+  def __init__(self, msg, location):
+    # type: (str, loc_t) -> None
+    FatalRuntime.__init__(self, 1, msg, location)
+
+
+class ErrExit(FatalRuntime):
+  """For set -e.
+
+  Travels between WordEvaluator and CommandEvaluator.
+  """
+  def __init__(self, exit_status, msg, location, show_code=False):
+    # type: (int, str, loc_t, bool) -> None
+    FatalRuntime.__init__(self, exit_status, msg, location)
+    self.show_code = show_code
+
+
+class Expr(FatalRuntime):
+  """ e.g. KeyError, IndexError, ZeroDivisionError """
+
+  def __init__(self, msg, location):
+    # type: (str, loc_t) -> None
+
+    # Unique status of 3 for expression errors -- for both the caught and
+    # uncaught case.
+    #
+    # Caught: try sets _status register to 3
+    # Uncaught: shell exits with status 3
+    FatalRuntime.__init__(self, 3, msg, location)

@@ -15,8 +15,10 @@ from core import state  # module under test
 def _InitMem():
   # empty environment, no arena.
   arena = test_lib.MakeArena('<state_test.py>')
+  col = 0
+  length = 1
   line_id = arena.AddLine(1, 'foo')
-  unused = arena.AddLineSpan(line_id, 0, 1)  # dummy
+  arena.NewTokenId(-1, col, length, line_id, '')  # unused, could be NewToken()
   mem = state.Mem('', [], arena, [])
 
   parse_opts, exec_opts, mutable_opts = state.MakeOpts(mem, None)
@@ -142,7 +144,7 @@ class MemTest(unittest.TestCase):
     mem.SetValue(
         lvalue.Named('g2'), None, scope_e.Dynamic,
         flags=state.SetExport)
-    self.assertEqual(value_e.Undef, mem.var_stack[0]['g2'].val.tag)
+    self.assertEqual(value_e.Undef, mem.var_stack[0]['g2'].val.tag_())
     self.assertEqual(True, mem.var_stack[0]['g2'].exported)
 
     # readonly myglobal
@@ -197,7 +199,7 @@ class MemTest(unittest.TestCase):
     mem.SetValue(
         lvalue.Named('r2'), None, scope_e.Dynamic,
         flags=state.SetReadOnly)
-    self.assertEqual(value_e.Undef, mem.var_stack[0]['r2'].val.tag)
+    self.assertEqual(value_e.Undef, mem.var_stack[0]['r2'].val.tag_())
     self.assertEqual(True, mem.var_stack[0]['r2'].readonly)
 
     # export -n PYTHONPATH

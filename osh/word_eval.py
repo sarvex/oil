@@ -4,13 +4,14 @@ word_eval.py - Evaluator for the word language.
 
 from _devbuild.gen.id_kind_asdl import Id, Kind, Kind_str
 from _devbuild.gen.syntax_asdl import (
-    braced_var_sub, Token,
-    word, word_e, word_t, compound_word,
+    Token, loc,
+    braced_var_sub, command_sub,
     bracket_op_e, bracket_op__ArrayIndex, bracket_op__WholeArray,
     suffix_op_e, suffix_op__PatSub, suffix_op__Slice,
     suffix_op__Unary, suffix_op__Static,
     sh_array_literal, single_quoted, double_quoted, simple_var_sub,
-    command_sub,
+    word_e, word_t, compound_word,
+    rhs_word, rhs_word_e, rhs_word_t,
     word_part_e, word_part__ArithSub, word_part__EscapedLiteral,
     word_part__AssocArrayLiteral, word_part__ExprSub, word_part__ExtGlob,
     word_part__FuncCall, word_part__Splice, word_part__TildeSub,
@@ -26,7 +27,6 @@ from _devbuild.gen.runtime_asdl import (
     a_index, a_index_e, a_index__Int, a_index__Str,
     VTestPlace, VarSubState,
 )
-from asdl import runtime
 from core import error
 from core import pyos
 from core import pyutil
@@ -150,7 +150,8 @@ def _SplitAssignArg(arg, word_spid):
   # that, and it probably isn't a bottleneck now
   m = libc.regex_match(ASSIGN_ARG_RE, arg)
   if m is None:
-    e_die("Assignment builtin expected NAME=value, got %r", arg, span_id=word_spid)
+    e_die("Assignment builtin expected NAME=value, got %r" % arg,
+          loc.Span(word_spid))
 
   var_name = m[1]
   # m[2] is used for grouping; ERE doesn't have non-capturing groups
@@ -343,8 +344,8 @@ def _PerformSlice(val,  # type: value_t
       # NOTE: This error is ALWAYS fatal in bash.  It's inconsistent with
       # strings.
       if has_length and length < 0:
-        e_die("The length index of a array slice can't be negative: %d",
-              length, part=part)
+        e_die("The length index of a array slice can't be negative: %d" %
+              length, loc.WordPart(part))
 
       # Quirk: "begin" for positional arguments ($@ and $*) counts $0.
       if arg0_val is not None:
@@ -372,7 +373,7 @@ def _PerformSlice(val,  # type: value_t
       result = value.MaybeStrArray(strs)
 
     elif case(value_e.AssocArray):
-      e_die("Can't slice associative arrays", part=part)
+      e_die("Can't slice associative arrays", loc.WordPart(part))
 
     else:
       raise NotImplementedError(val.tag_())
@@ -443,7 +444,7 @@ class TildeEvaluator(object):
 
     if result is None:
       if self.exec_opts.strict_tilde():
-        e_die("Error expanding tilde (e.g. invalid user)", token=token)
+        e_die("Error expanding tilde (e.g. invalid user)", token)
       else:
         return token.val  # Return ~ or ~user literally
 
@@ -598,7 +599,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
 
     if tok.id in (Id.VTest_ColonHyphen, Id.VTest_Hyphen):
       if is_falsey:
-        self._EvalWordToParts(op.arg_word, part_vals, eval_flags)
+        self._EvalRhsWordToParts(op.arg_word, part_vals, eval_flags)
         return True
       else:
         return False
@@ -608,7 +609,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
       if is_falsey:
         return False
       else:
-        self._EvalWordToParts(op.arg_word, part_vals, eval_flags)
+        self._EvalRhsWordToParts(op.arg_word, part_vals, eval_flags)
         return True
 
     # Splice and assign
@@ -616,7 +617,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
       if is_falsey:
         # Collect new part vals.
         assign_part_vals = []  # type: List[part_value_t]
-        self._EvalWordToParts(op.arg_word, assign_part_vals, eval_flags)
+        self._EvalRhsWordToParts(op.arg_word, assign_part_vals, eval_flags)
         # Append them to out param AND return them.
         part_vals.extend(assign_part_vals)
 
@@ -655,10 +656,10 @@ class AbstractWordEvaluator(StringWordEvaluator):
       if is_falsey:
         # The arg is the error mesage
         error_part_vals = []  # type: List[part_value_t]
-        self._EvalWordToParts(op.arg_word, error_part_vals, eval_flags)
+        self._EvalRhsWordToParts(op.arg_word, error_part_vals, eval_flags)
         error_str = _DecayPartValuesToString(error_part_vals,
                                              self.splitter.GetJoinChar())
-        e_die("unset variable %r", error_str, token=blame_token)
+        e_die("unset variable %r" % error_str, blame_token)
 
       else:
         return False
@@ -685,7 +686,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
           # Add this here so we don't have to add it so far down the stack.
           # TODO: It's better to show BOTH this CODE an the actual DATA
           # somehow.
-          e.span_id = token.span_id
+          e.location = token
 
           if self.exec_opts.strict_word_eval():
             raise
@@ -750,7 +751,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
         val = cast(value__Str, UP_val)
         bvs_part = self.unsafe_arith.ParseVarRef(val.s, token)
         if not self.exec_opts.eval_unsafe_arith() and bvs_part.bracket_op:
-          e_die('a[i] not allowed without shopt -s eval_unsafe_arith', token=token)
+          e_die('a[i] not allowed without shopt -s eval_unsafe_arith', token)
         return self._VarRefValue(bvs_part, quoted, vsub_state, vtest_place)
 
       elif case(value_e.MaybeStrArray):  # caught earlier but OK
@@ -764,7 +765,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
 
   def _ApplyUnarySuffixOp(self, val, op):
     # type: (value_t, suffix_op__Unary) -> value_t
-    assert val.tag != value_e.Undef
+    assert val.tag_() != value_e.Undef
 
     op_kind = consts.GetKind(op.tok.id)
 
@@ -773,7 +774,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
       # Detect has_extglob so that DoUnarySuffixOp doesn't use the fast
       # shortcut for constant strings.
       arg_val, has_extglob = self.EvalWordToPattern(op.arg_word)
-      assert arg_val.tag == value_e.Str
+      assert arg_val.tag_() == value_e.Str
 
       UP_val = val
       with tagswitch(val) as case:
@@ -815,12 +816,13 @@ class AbstractWordEvaluator(StringWordEvaluator):
     # ERE.  I don't think there's a straightforward translation from !(*.py) to
     # ERE!  You would need an engine that supports negation?  (Derivatives?)
     if has_extglob:
-      e_die('extended globs not supported in ${x//GLOB/}', word=op.pat)
+      e_die('extended globs not supported in ${x//GLOB/}', loc.Word(op.pat))
 
     if op.replace:
-      replace_val = self.EvalWordToString(op.replace)
-      assert replace_val.tag == value_e.Str, replace_val
-      replace_str = replace_val.s
+      replace_val = self.EvalRhsWord(op.replace)
+      # Can't have an array, so must be a string
+      assert replace_val.tag_() == value_e.Str, replace_val
+      replace_str = cast(value__Str, replace_val).s
     else:
       replace_str = ''
 
@@ -832,7 +834,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
       #   "Glob is not in CANONICAL FORM".
       # - Propagate location info back to the 'op.pat' word.
       pass
-    replacer = string_ops.GlobReplacer(regex, replace_str, op.spids[0])
+    replacer = string_ops.GlobReplacer(regex, replace_str, op.slash_tok)
 
     with tagswitch(val) as case2:
       if case2(value_e.Str):
@@ -909,7 +911,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
           p = prompt.replace('\x01', '').replace('\x02', '')
           result = value.Str(p)
         else:
-          e_die("Can't use @P on %s", ui.ValType(val))  # TODO: location
+          e_die("Can't use @P on %s" % ui.ValType(val))  # TODO: location
 
     elif op_id == Id.VOp0_Q:
       with tagswitch(val) as case:
@@ -923,7 +925,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
           tmp = [qsn.maybe_shell_encode(s) for s in array_val.strs]
           result = value.Str(' '.join(tmp))
         else:
-          e_die("Can't use @Q on %s", ui.ValType(val))  # TODO: location
+          e_die("Can't use @Q on %s" % ui.ValType(val))  # TODO: location
 
     elif op_id == Id.VOp0_a:
       # We're ONLY simluating -a and -A, not -r -x -n for now.  See
@@ -948,7 +950,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
       result = value.Str(''.join(chars))
 
     else:
-      e_die('Var op %r not implemented', op.val, token=op)
+      e_die('Var op %r not implemented' % op.val, op)
 
     return result, quoted2
 
@@ -965,7 +967,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
           val = self._EmptyMaybeStrArrayOrError(part.token)
         elif case2(value_e.Str):
           val = cast(value__Str, UP_val)
-          e_die("Can't index string with @", part=part)
+          e_die("Can't index string with @", loc.WordPart(part))
         elif case2(value_e.MaybeStrArray):
           val = cast(value__MaybeStrArray, UP_val)
           # TODO: Is this a no-op?  Just leave 'val' alone.
@@ -979,7 +981,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
           val = self._EmptyMaybeStrArrayOrError(part.token)
         elif case2(value_e.Str):
           val = cast(value__Str, UP_val)
-          e_die("Can't index string with *", part=part)
+          e_die("Can't index string with *", loc.WordPart(part))
         elif case2(value_e.MaybeStrArray):
           val = cast(value__MaybeStrArray, UP_val)
           # TODO: Is this a no-op?  Just leave 'val' alone.
@@ -1005,8 +1007,8 @@ class AbstractWordEvaluator(StringWordEvaluator):
       elif case2(value_e.Str):
         # Bash treats any string as an array, so we can't add our own
         # behavior here without making valid OSH invalid bash.
-        e_die("Can't index string %r with integer", part.token.val,
-              token=part.token)
+        e_die("Can't index string %r with integer" % part.token.val,
+              part.token)
 
       elif case2(value_e.MaybeStrArray):
         array_val = cast(value__MaybeStrArray, UP_val)
@@ -1076,7 +1078,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
   def _DecayArray(self, val):
     # type: (value__MaybeStrArray) -> value__Str
     """Decay $* to a string."""
-    assert val.tag == value_e.MaybeStrArray, val
+    assert val.tag_() == value_e.MaybeStrArray, val
     sep = self.splitter.GetJoinChar()
     tmp = [s for s in val.strs if s is not None]
     return value.Str(sep.join(tmp))
@@ -1090,13 +1092,13 @@ class AbstractWordEvaluator(StringWordEvaluator):
       return value.Str('')
 
     name = token.val[1:] if token.val.startswith('$') else token.val
-    e_die('Undefined variable %r', name, token=token)
+    e_die('Undefined variable %r' % name, token)
 
   def _EmptyMaybeStrArrayOrError(self, token):
     # type: (Token) -> value_t
     assert token is not None
     if self.exec_opts.nounset():
-      e_die('Undefined array %r', token.val, token=token)
+      e_die('Undefined array %r' % token.val, token)
     else:
       return value.MaybeStrArray([])
 
@@ -1126,8 +1128,8 @@ class AbstractWordEvaluator(StringWordEvaluator):
           # for ${BASH_SOURCE}, etc.
           val = DecayArray(val)
         else:
-          e_die("Array %r can't be referred to as a scalar (without @ or *)",
-                var_name, part=part)
+          e_die("Array %r can't be referred to as a scalar (without @ or *)" %
+                var_name, loc.WordPart(part))
 
     return val
 
@@ -1269,7 +1271,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
             # ${!a[@]-'default'} is a non-fatal runtime error in bash.  Here
             # it's fatal.
             tok = cast(suffix_op__Unary, UP_op).tok
-            e_die('Test operation not allowed with ${!array[@]}', token=tok)
+            e_die('Test operation not allowed with ${!array[@]}', tok)
 
           # ${!array[@]} to get indices/keys
           val = self._Keys(val, part.token)
@@ -1289,7 +1291,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
             val = self._EmptyStrOrError(val, part.token)
 
       else:
-        raise AssertionError()
+        raise AssertionError(part.prefix_op)
 
     else:
       if not suffix_is_test:  # undef -> '' if no prefix op
@@ -1327,7 +1329,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
 
         elif case(suffix_op_e.Static):
           op = cast(suffix_op__Static, UP_op)
-          e_die('Not implemented', token=op.tok)
+          e_die('Not implemented', op.tok)
 
         else:
           raise AssertionError()
@@ -1361,8 +1363,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
           part_val = cast(part_value__Array, UP_part_val)
           if self.exec_opts.strict_array():
             # Examples: echo f > "$@"; local foo="$@"
-            e_die("Illegal array word part (strict_array)",
-                  span_id=span_id)
+            e_die("Illegal array word part (strict_array)", loc.Span(span_id))
           else:
             # It appears to not respect IFS
             # TODO: eliminate double join()?
@@ -1385,7 +1386,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
     part_vals = [] # type: List[part_value_t]
     self._EvalBracedVarSub(part, part_vals, False)
     # blame ${ location
-    return self._ConcatPartVals(part_vals, part.spids[0])
+    return self._ConcatPartVals(part_vals, part.left.span_id)
 
   def _EvalSimpleVarSub(self, token, part_vals, quoted):
     # type: (Token, List[part_value_t], bool) -> None
@@ -1403,8 +1404,8 @@ class AbstractWordEvaluator(StringWordEvaluator):
           # for $BASH_SOURCE, etc.
           val = DecayArray(val)
         else:
-          e_die("Array %r can't be referred to as a scalar (without @ or *)",
-                var_name, token=token)
+          e_die("Array %r can't be referred to as a scalar (without @ or *)" %
+                var_name, token)
 
     elif token.id == Id.VSub_Number:
       var_num = int(token.val[1:])
@@ -1474,7 +1475,8 @@ class AbstractWordEvaluator(StringWordEvaluator):
 
         elif case(part_value_e.Array):
           # Disallow array
-          e_die("Extended globs and arrays can't appear in the same word", word=w)
+          e_die("Extended globs and arrays can't appear in the same word",
+                loc.Word(w))
 
         elif case(part_value_e.ExtGlob):
           part_val = cast(part_value__ExtGlob, UP_part_val)
@@ -1507,10 +1509,10 @@ class AbstractWordEvaluator(StringWordEvaluator):
     with tagswitch(part) as case:
       if case(word_part_e.ShArrayLiteral):
         part = cast(sh_array_literal, UP_part)
-        e_die("Unexpected array literal", part=part)
+        e_die("Unexpected array literal", loc.WordPart(part))
       elif case(word_part_e.AssocArrayLiteral):
         part = cast(word_part__AssocArrayLiteral, UP_part)
-        e_die("Unexpected associative array literal", part=part)
+        e_die("Unexpected associative array literal", loc.WordPart(part))
 
       elif case(word_part_e.Literal):
         part = cast(Token, UP_part)
@@ -1609,7 +1611,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
               raise AssertionError()
 
           else:
-            e_die("Can't splice %r", var_name, part=part)
+            e_die("Can't splice %r" % var_name, loc.WordPart(part))
 
         part_vals.append(part_value.Array(items))
 
@@ -1628,77 +1630,79 @@ class AbstractWordEvaluator(StringWordEvaluator):
       else:
         raise AssertionError(part.tag_())
 
-  def _EvalWordToParts(self, w, part_vals, eval_flags=0):
-    # type: (word_t, List[part_value_t], int) -> None
-    """Helper for EvalRhsWord, EvalWordSequence, etc.
-
-    Returns:
-      List of part_value.
-      But note that this is a TREE.
-    """
+  def _EvalRhsWordToParts(self, w, part_vals, eval_flags=0):
+    # type: (rhs_word_t, List[part_value_t], int) -> None
     quoted = bool(eval_flags & QUOTED)
-    is_subst = bool(eval_flags & IS_SUBST)
 
     UP_w = w
     with tagswitch(w) as case:
-      if case(word_e.Compound):
-        w = cast(compound_word, UP_w)
-
-        # Does the word have an extended glob?  This is a special case because
-        # of the way we use glob() and then fnmatch(..., FNM_EXTMATCH) to
-        # implement extended globs.  It's hard to carry that extra information
-        # all the way past the word splitting stage.
-
-        # OSH semantic limitations: If a word has an extended glob part, then
-        # 1. It can't have an array
-        # 2. Word splitting of unquoted words isn't respected
-
-        word_part_vals = []  # type: List[part_value_t]
-        has_extglob = False
-        for p in w.parts:
-          if p.tag_() == word_part_e.ExtGlob:
-            has_extglob = True
-          self._EvalWordPart(p, word_part_vals, eval_flags)
-
-        # Caller REQUESTED extglob evaluation, AND we parsed word_part.ExtGlob()
-        if has_extglob:
-          if bool(eval_flags & EXTGLOB_FILES):
-            # Treat the WHOLE word as a pattern.  We need to TWO VARIANTS of the
-            # word because of the way we use libc:
-            # 1. With '*' for extglob parts
-            # 2. With _EvalExtGlob() for extglob parts
-
-            glob_parts = []  # type: List[str]
-            fnmatch_parts = []  # type: List[str]
-            self._TranslateExtGlob(word_part_vals, w, glob_parts, fnmatch_parts)
-
-            #log('word_part_vals %s', word_part_vals)
-            glob_pat = ''.join(glob_parts)
-            fnmatch_pat = ''.join(fnmatch_parts)
-            #log("glob %s fnmatch %s", glob_pat, fnmatch_pat)
-
-            results = []  # type: List[str]
-            n = self.globber.ExpandExtended(glob_pat, fnmatch_pat, results)
-            if n < 0:
-              span_id = word_.LeftMostSpanForWord(w)
-              raise error.FailGlob(
-                  'Extended glob %r matched no files' % fnmatch_pat, span_id=span_id)
-
-            part_vals.append(part_value.Array(results))
-          elif bool(eval_flags & EXTGLOB_NESTED):
-            # We only glob at the TOP level of @(nested|@(pattern))
-            part_vals.extend(word_part_vals)
-          else:
-            # e.g. simple_word_eval, assignment builtin
-            e_die('Extended glob not allowed in this word', word=w)
-        else:
-          part_vals.extend(word_part_vals)
-
-      elif case(word_e.Empty):
+      if case(rhs_word_e.Empty):
         part_vals.append(part_value.String('', quoted, not quoted))
 
+      elif case(rhs_word_e.Compound):
+        w = cast(compound_word, UP_w)
+        self._EvalWordToParts(w, part_vals, eval_flags=eval_flags)
+
       else:
-        raise AssertionError(w.tag_())
+        raise AssertionError()
+
+  def _EvalWordToParts(self, w, part_vals, eval_flags=0):
+    # type: (compound_word, List[part_value_t], int) -> None
+    """Helper for EvalRhsWord, EvalWordSequence, etc.
+
+    Returns:
+      Appends to part_vals.  Note that this is a TREE.
+    """
+    # Does the word have an extended glob?  This is a special case because
+    # of the way we use glob() and then fnmatch(..., FNM_EXTMATCH) to
+    # implement extended globs.  It's hard to carry that extra information
+    # all the way past the word splitting stage.
+
+    # OSH semantic limitations: If a word has an extended glob part, then
+    # 1. It can't have an array
+    # 2. Word splitting of unquoted words isn't respected
+
+    word_part_vals = []  # type: List[part_value_t]
+    has_extglob = False
+    for p in w.parts:
+      if p.tag_() == word_part_e.ExtGlob:
+        has_extglob = True
+      self._EvalWordPart(p, word_part_vals, eval_flags)
+
+    # Caller REQUESTED extglob evaluation, AND we parsed word_part.ExtGlob()
+    if has_extglob:
+      if bool(eval_flags & EXTGLOB_FILES):
+        # Treat the WHOLE word as a pattern.  We need to TWO VARIANTS of the
+        # word because of the way we use libc:
+        # 1. With '*' for extglob parts
+        # 2. With _EvalExtGlob() for extglob parts
+
+        glob_parts = []  # type: List[str]
+        fnmatch_parts = []  # type: List[str]
+        self._TranslateExtGlob(word_part_vals, w, glob_parts, fnmatch_parts)
+
+        #log('word_part_vals %s', word_part_vals)
+        glob_pat = ''.join(glob_parts)
+        fnmatch_pat = ''.join(fnmatch_parts)
+        #log("glob %s fnmatch %s", glob_pat, fnmatch_pat)
+
+        results = []  # type: List[str]
+        n = self.globber.ExpandExtended(glob_pat, fnmatch_pat, results)
+        if n < 0:
+          span_id = word_.LeftMostSpanForWord(w)
+          raise error.FailGlob(
+              'Extended glob %r matched no files' % fnmatch_pat,
+              loc.Span(span_id))
+
+        part_vals.append(part_value.Array(results))
+      elif bool(eval_flags & EXTGLOB_NESTED):
+        # We only glob at the TOP level of @(nested|@(pattern))
+        part_vals.extend(word_part_vals)
+      else:
+        # e.g. simple_word_eval, assignment builtin
+        e_die('Extended glob not allowed in this word', loc.Word())
+    else:
+      part_vals.extend(word_part_vals)
 
   def _PartValsToString(self, part_vals, w, eval_flags, strs):
     # type: (List[part_value_t], compound_word, int, List[str]) -> None
@@ -1730,7 +1734,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
             # flat list of part_vals.  The only case where we really get arrays
             # is "$@", "${a[@]}", "${a[@]//pat/replace}", etc.
             e_die("This word should yield a string, but it contains an array",
-                  word=w)
+                  loc.Word(w))
 
             # TODO: Maybe add detail like this.
             #e_die('RHS of assignment should only have strings.  '
@@ -1746,7 +1750,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
 
           # Extended globs are only allowed where we expect them!
           if not bool(eval_flags & QUOTE_FNMATCH):
-            e_die('extended glob not allowed in this word', word=w)
+            e_die('extended glob not allowed in this word', loc.Word(w))
 
           # recursive call
           self._PartValsToString(part_val.part_vals, w, eval_flags, strs)
@@ -1760,9 +1764,6 @@ class AbstractWordEvaluator(StringWordEvaluator):
 
     Flags can contain a quoting algorithm.
     """
-    if UP_w.tag_() == word_e.Empty:
-      return value.Str('')
-
     assert UP_w.tag_() == word_e.Compound, UP_w
     w = cast(compound_word, UP_w)
 
@@ -1776,12 +1777,12 @@ class AbstractWordEvaluator(StringWordEvaluator):
     return value.Str(''.join(strs))
 
   def EvalWordToPattern(self, UP_w):
-    # type: (word_t) -> Tuple[value__Str, bool]
+    # type: (rhs_word_t) -> Tuple[value__Str, bool]
     """Like EvalWordToString, but returns whether we got ExtGlob."""
-    if UP_w.tag_() == word_e.Empty:
+    if UP_w.tag_() == rhs_word_e.Empty:
       return value.Str(''), False
 
-    assert UP_w.tag_() == word_e.Compound, UP_w
+    assert UP_w.tag_() == rhs_word_e.Compound, UP_w
     w = cast(compound_word, UP_w)
 
     has_extglob = False
@@ -1818,10 +1819,10 @@ class AbstractWordEvaluator(StringWordEvaluator):
     return val
 
   def EvalRhsWord(self, UP_w):
-    # type: (word_t) -> value_t
+    # type: (rhs_word_t) -> value_t
     """Used for RHS of assignment.  There is no splitting.
     """
-    if UP_w.tag_() == word_e.Empty:
+    if UP_w.tag_() == rhs_word_e.Empty:
       return value.Str('')
 
     assert UP_w.tag_() == word_e.Compound, UP_w
@@ -1844,12 +1845,10 @@ class AbstractWordEvaluator(StringWordEvaluator):
         part0 = cast(word_part__AssocArrayLiteral, UP_part0)
         d = NewDict()  # type: Dict[str, str]
         n = len(part0.pairs)
-        i = 0
-        while i < n:
-          k = self.EvalWordToString(part0.pairs[i])
-          v = self.EvalWordToString(part0.pairs[i+1])
+        for pair in part0.pairs:
+          k = self.EvalWordToString(pair.key)
+          v = self.EvalWordToString(pair.value)
           d[k.s] = v.s
-          i += 2
         return value.AssocArray(d)
 
     # If RHS doesn't look like a=( ... ), then it must be a string.
@@ -1922,7 +1921,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
         if n < 0:
           # TODO: location info, with span IDs carried through the frame
           raise error.FailGlob('Pattern %r matched no files' % a,
-                               span_id=runtime.NO_SPID)
+                               loc.Missing())
       else:
         argv.append(glob_.GlobUnescape(a))
 
@@ -1982,7 +1981,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
         if left_token:  # Detected statically
           if left_token.id != Id.Lit_VarLike:
             # (not guaranteed since started_pairs is set twice)
-            e_die('LHS array not allowed in assignment builtin', word=w)
+            e_die('LHS array not allowed in assignment builtin', loc.Word(w))
 
           tok_val = left_token.val
           if tok_val[-2] == '+':
@@ -1993,15 +1992,15 @@ class AbstractWordEvaluator(StringWordEvaluator):
             append = False
 
           if part_offset == len(w.parts):
-            rhs_word = word.Empty()  # type: word_t
+            rhs = rhs_word.Empty()  # type: rhs_word_t
           else:
             # tmp is for intersection of C++/MyPy type systems
             tmp = compound_word(w.parts[part_offset:])
             word_.TildeDetectAssign(tmp)
-            rhs_word = tmp
+            rhs = tmp
 
           with state.ctx_AssignBuiltin(self.mutable_opts):
-            right = self.EvalRhsWord(rhs_word)
+            right = self.EvalRhsWord(rhs)
 
           arg2 = assign_arg(var_name, right, append, word_spid)
 
@@ -2065,7 +2064,7 @@ class AbstractWordEvaluator(StringWordEvaluator):
         num_appended = self.globber.Expand(val.s, strs)
         if num_appended < 0:
           raise error.FailGlob('Pattern %r matched no files' % val.s,
-                               span_id=word_spid)
+                               loc.Span(word_spid))
         for _ in xrange(num_appended):
           spids.append(word_spid)
         continue

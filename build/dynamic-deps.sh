@@ -40,16 +40,19 @@ EOF
   # they are inputs to the tool
 
   # mylib.py causes a bunch of errors
+
+  # tools_main.py and readlink.py have just 1 error
+
   cat >$FILTER_DIR/filter-typecheck.txt <<'EOF'
 __init__.py
 typing.py
-core/completion.py
 mycpp/mylib.py
-osh/builtin_comp.py
 oil_lang/builtin_oil.py
 oil_lang/funcs_builtin.py
 pylib/collections_.py
-tools/.*
+tools/deps.py
+tools/tools_main.py
+tools/readlink.py
 EOF
 
   # On top of the typecheck filter, exclude these from translation
@@ -57,13 +60,16 @@ EOF
   # Note: renaming files to pyoptview, pyconsts.py, pymatch.py, py_path_stat.py
   # etc. would make this filter cleaner.
 
+  # TODO: Remove pyerror.py and change pattern back to core/py.*
+
   cat >$FILTER_DIR/filter-translate.txt <<'EOF'
 _devbuild/
 _gen/
 .*_def\.py
 .*_spec\.py
 asdl/py.*
-core/py.*
+core/pyos.py
+core/pyutil.py
 core/optview.py
 frontend/py.*.py
 frontend/consts.py
@@ -74,7 +80,6 @@ oil_lang/builtin_oil.py
 oil_lang/expr_eval.py
 oil_lang/objects.py
 osh/bool_stat.py
-tools/.*
 tea/.*
 EOF
 

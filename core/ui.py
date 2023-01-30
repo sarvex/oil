@@ -19,19 +19,18 @@ from _devbuild.gen.syntax_asdl import (
 from _devbuild.gen.runtime_asdl import value_str, value_t
 from asdl import runtime
 from asdl import format as fmt
-from core.pyutil import stderr_line
-from osh import word_
+from frontend import location
 from mycpp import mylib
-from mycpp.mylib import tagswitch, StrFromC
+from mycpp.mylib import print_stderr, tagswitch, StrFromC
 from qsn_ import qsn
 
 from typing import List, Optional, Any, cast, TYPE_CHECKING
 if TYPE_CHECKING:
   from _devbuild.gen import arg_types
   from core.alloc import Arena
+  from core import error
   from core.error import _ErrorWithLocation
   from mycpp.mylib import Writer
-  #from frontend.args import UsageError
 
 
 def ValType(val):
@@ -64,7 +63,7 @@ def PrettyToken(tok, arena):
   if tok.id == Id.Eof_Real:
     return 'EOF'
 
-  span = arena.GetLineSpan(tok.span_id)
+  span = arena.GetToken(tok.span_id)
   line = arena.GetLine(span.line_id)
   val = line[span.col: span.col + span.length]
   # TODO: Print length 0 as 'EOF'?
@@ -142,7 +141,7 @@ def GetLineSourceString(arena, line_id, quote_filename=False):
       if src.span_id == runtime.NO_SPID:
         s = '[ %s word at ? ]' % src.what
       else:
-        span = arena.GetLineSpan(src.span_id)
+        span = arena.GetToken(src.span_id)
         line_num = arena.GetLineNumber(span.line_id)
         outer_source = GetLineSourceString(arena, span.line_id,
                                            quote_filename=quote_filename)
@@ -160,7 +159,7 @@ def GetLineSourceString(arena, line_id, quote_filename=False):
       if src.span_id == runtime.NO_SPID:
         where = '?'
       else:
-        span = arena.GetLineSpan(src.span_id)
+        span = arena.GetToken(src.span_id)
         line_num = arena.GetLineNumber(span.line_id)
         outer_source = GetLineSourceString(arena, span.line_id,
                                            quote_filename=quote_filename)
@@ -174,7 +173,7 @@ def GetLineSourceString(arena, line_id, quote_filename=False):
 
     elif case(source_e.Reparsed):
       src = cast(source__Reparsed, UP_src)
-      span2 = arena.GetLineSpan(src.left_spid)
+      span2 = src.left_token
       outer_source = GetLineSourceString(arena, span2.line_id,
                                          quote_filename=quote_filename)
       s = '[ %s in %s ]' % (src.what, outer_source)
@@ -184,7 +183,7 @@ def GetLineSourceString(arena, line_id, quote_filename=False):
       s = '-- %s' % src.s  # use -- to say it came from a flag
 
     else:
-      raise AssertionError()
+      raise AssertionError(src)
 
   return s
 
@@ -201,7 +200,7 @@ def _PrintWithSpanId(prefix, msg, span_id, arena, show_code):
     f.write('[??? no location ???] %s%s\n' % (prefix, msg))
     return
 
-  line_span = arena.GetLineSpan(span_id)
+  line_span = arena.GetToken(span_id)
   orig_col = line_span.col
   line_id = line_span.line_id
 
@@ -214,7 +213,7 @@ def _PrintWithSpanId(prefix, msg, span_id, arena, show_code):
     # LValue/backticks is the only case where we don't print this
     if src.tag_() == source_e.Reparsed:
       src = cast(source__Reparsed, UP_src)
-      span2 = arena.GetLineSpan(src.left_spid)
+      span2 = src.left_token
       line_num = arena.GetLineNumber(span2.line_id)
 
       # We want the excerpt to look like this:
@@ -318,7 +317,7 @@ class ErrorFormatter(object):
   def StderrLine(self, msg):
     # type: (str) -> None
     """Just print to stderr."""
-    stderr_line(msg)
+    print_stderr(msg)
 
   def PrettyPrintError(self, err, prefix=''):
     # type: (_ErrorWithLocation, str) -> None
@@ -329,7 +328,7 @@ class ErrorFormatter(object):
     level, in CommandEvaluator.
     """
     msg = err.UserErrorString()
-    span_id = word_.SpanIdFromError(err)
+    span_id = location.GetSpanId(err.location)
 
     # TODO: Should there be a special span_id of 0 for EOF?  runtime.NO_SPID
     # means there is no location info, but 0 could mean that the location is EOF.
@@ -342,7 +341,7 @@ class ErrorFormatter(object):
     _PrintWithSpanId(prefix, msg, span_id, self.arena, True)
 
   def PrintErrExit(self, err, pid):
-    # type: (_ErrorWithLocation, int) -> None
+    # type: (error.ErrExit, int) -> None
 
     # TODO:
     # - Don't quote code if you already quoted something on the same line?
@@ -352,7 +351,7 @@ class ErrorFormatter(object):
     #self.PrettyPrintError(err, prefix=prefix)
 
     msg = err.UserErrorString()
-    span_id = word_.SpanIdFromError(err)
+    span_id = location.GetSpanId(err.location)
     _PrintWithSpanId(prefix, msg, span_id, self.arena, err.show_code)
 
 
@@ -360,7 +359,7 @@ def PrintAst(node, flag):
   # type: (command_t, arg_types.main) -> None
 
   if flag.ast_format == 'none':
-    stderr_line('AST not printed.')
+    print_stderr('AST not printed.')
     if 0:
       from _devbuild.gen.id_kind_asdl import Id_str
       from frontend.lexer import ID_HIST

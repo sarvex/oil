@@ -23,17 +23,24 @@ if TYPE_CHECKING:
   from frontend.reader import _Reader
 
 
-# Special immutable tokens
-_EOL_TOK = Token(Id.Eol_Tok, runtime.NO_SPID, None)
+# Special immutable token
+_EOL_TOK = Token(Id.Eol_Tok, -1, -1, -1, runtime.NO_SPID, None)
+
+
+def DummyToken(id_, val):
+  # type: (int, str) -> Token
+
+  col = -1
+  length = -1
+  line_id = -1
+  return Token(id_, col, length, line_id, runtime.NO_SPID, val)
 
 
 class LineLexer(object):
   def __init__(self, line, arena):
     # type: (str, Arena) -> None
     self.arena = arena
-
-    self.arena_skip = False  # For MaybeUnreadOne
-    self.last_span_id = runtime.NO_SPID  # For MaybeUnreadOne
+    self.replace_last_token = False  # For MaybeUnreadOne
 
     self.Reset(line, -1, 0)  # Invalid line_id to start
 
@@ -59,11 +66,11 @@ class LineLexer(object):
       return False
     else:
       self.line_pos -= 1
-      self.arena_skip = True  # don't add the next token to the arena
+      self.replace_last_token = True  # don't add the next token to the arena
       return True
 
-  def GetSpanIdForEof(self):
-    # type: () -> int
+  def GetEofToken(self, id_):
+    # type: (int) -> Token
     """Create a new span ID for syntax errors involving the EOF token."""
     if self.line_id == -1:
       # When line_id == -1, this means there are ZERO lines.  Add a dummy line
@@ -71,7 +78,8 @@ class LineLexer(object):
       line_id = self.arena.AddLine('', 0)
     else:
       line_id = self.line_id
-    return self.arena.AddLineSpan(line_id, self.line_pos, 0)
+
+    return self.arena.NewToken(id_, self.line_pos, 0, line_id, '')
 
   def LookAheadOne(self, lex_mode):
     # type: (lex_mode_t) -> Id_t
@@ -184,9 +192,12 @@ class LineLexer(object):
     # - Kind.KW is sometimes a literal in a word
     # - Kind.Right is for " in here docs.  Lexer isn't involved.
     # - Got an error with Kind.Left too that I don't understand
+    # - Kind.ControlFlow doesn't work because we word_.StaticEval()
     # if kind in (Kind.Lit, Kind.VSub, Kind.Redir, Kind.Char, Kind.Backtick, Kind.KW, Kind.Right):
 
-    if kind in (Kind.Arith, Kind.Op, Kind.WS, Kind.Ignored, Kind.Eof):
+    if kind in (Kind.Arith, Kind.Op,
+        Kind.VTest, Kind.VOp0, Kind.VOp2, Kind.VOp3,
+        Kind.WS, Kind.Ignored, Kind.Eof):
       tok_val = None  # type: Optional[str]
     else:
       tok_val = line[line_pos:end_pos]
@@ -194,17 +205,15 @@ class LineLexer(object):
     # want it to be "low level".  The only thing fabricated here is a newline
     # added at the last line, so we don't end with \0.
 
-    if self.arena_skip:  # make another token from the last span
-      assert self.last_span_id != runtime.NO_SPID
-      span_id = self.last_span_id
-      self.arena_skip = False
-    else:
-      tok_len = end_pos - line_pos
-      span_id = self.arena.AddLineSpan(self.line_id, line_pos, tok_len)
-      self.last_span_id = span_id
+    if self.replace_last_token:  # make another token from the last span
+      self.arena.tokens.pop()
+      self.replace_last_token = False
+
     #log('LineLexer.Read() span ID %d for %s', span_id, tok_type)
 
-    t = Token(tok_type, span_id, tok_val)
+    tok_len = end_pos - line_pos
+    t = self.arena.NewToken(tok_type, line_pos, tok_len, self.line_id, tok_val)
+
     self.line_pos = end_pos
     return t
 
@@ -289,14 +298,12 @@ class Lexer(object):
       line_id, line, line_pos = self.line_reader.GetLine()
 
       if line is None:  # no more lines
-        span_id = self.line_lexer.GetSpanIdForEof()
         if self.emit_comp_dummy:
           id_ = Id.Lit_CompDummy
           self.emit_comp_dummy = False  # emit EOF the next time
         else:
           id_ = Id.Eof_Real
-        t = Token(id_, span_id, '')
-        return t
+        return self.line_lexer.GetEofToken(id_)
 
       self.line_lexer.Reset(line, line_id, line_pos)  # fill with a new line
       t = self.line_lexer.Read(lex_mode)
@@ -305,7 +312,7 @@ class Lexer(object):
     if len(self.translation_stack):
       old_id, new_id = self.translation_stack[-1]  # top
       if t.id == old_id:
-        #log('==> TRANSLATING %s ==> %s', Id_str(old_id), Id_str(t.id))
+        #log('==> TRANSLATING %s ==> %s', Id_str(t.id), Id_str(new_id))
         self.translation_stack.pop()
         t.id = new_id
 

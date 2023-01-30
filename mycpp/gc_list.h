@@ -65,8 +65,10 @@ class List {
   T pop();
 
   // Used in osh/word_parse.py to remove from front
-  // TODO: Don't accept an arbitrary index?
   T pop(int i);
+
+  // Remove the first occourence of x from the list.
+  void remove(T x);
 
   void clear();
 
@@ -158,21 +160,14 @@ List<T>* list_repeat(T item, int times);
 template <typename T>
 inline bool list_contains(List<T>* haystack, T needle);
 
-inline int int_cmp(int a, int b) {
-  if (a == b) {
-    return 0;
-  }
-  return a < b ? -1 : 1;
-}
-
-inline int str_cmp(Str* a, Str* b);
-inline bool _cmp(Str* a, Str* b);
-
 template <typename K, typename V>
 class Dict;  // forward decl
 
 template <typename V>
 List<Str*>* sorted(Dict<Str*, V>* d);
+
+template <typename T>
+List<T>* sorted(List<T>* l);
 
 // L[begin:]
 // TODO: Implement this in terms of slice(begin, end)
@@ -292,17 +287,15 @@ T List<T>::pop() {
 }
 
 // Used in osh/word_parse.py to remove from front
-// TODO: Don't accept an arbitrary index?
 template <typename T>
 T List<T>::pop(int i) {
   DCHECK(len_ > 0);
-  DCHECK(i == 0);  // only support popping the first item
 
-  T result = index_(0);
+  T result = index_(i);
   len_--;
 
   // Shift everything by one
-  memmove(slab_->items_, slab_->items_ + 1, len_ * sizeof(T));
+  memmove(slab_->items_ + i, slab_->items_ + (i + 1), len_ * sizeof(T));
 
   /*
   for (int j = 0; j < len_; j++) {
@@ -312,6 +305,12 @@ T List<T>::pop(int i) {
 
   slab_->items_[len_] = 0;  // zero for GC scan
   return result;
+}
+
+template <typename T>
+void List<T>::remove(T x) {
+  int idx = this->index(x);
+  this->pop(idx);  // unused
 }
 
 template <typename T>
@@ -345,24 +344,8 @@ void List<T>::extend(List<T>* other) {
   len_ = new_len;
 }
 
-// Used by [[ a > b ]] and so forth
-inline int str_cmp(Str* a, Str* b) {
-  int len_a = len(a);
-  int len_b = len(b);
-
-  int min = std::min(len_a, len_b);
-  if (min == 0) {
-    return int_cmp(len_a, len_b);
-  }
-  int comp = memcmp(a->data_, b->data_, min);
-  if (comp == 0) {
-    return int_cmp(len_a, len_b);  // tiebreaker
-  }
-  return comp;
-}
-
 inline bool _cmp(Str* a, Str* b) {
-  return str_cmp(a, b) < 0;
+  return mylib::str_cmp(a, b) < 0;
 }
 
 template <typename T>
@@ -396,6 +379,13 @@ List<Str*>* sorted(Dict<Str*, V>* d) {
   return keys;
 }
 
+template <typename T>
+List<T>* sorted(List<T>* l) {
+  auto ret = list(l);
+  ret->sort();
+  return ret;
+}
+
 // list(L) copies the list
 template <typename T>
 List<T>* list(List<T>* other) {
@@ -421,6 +411,7 @@ class ListIter {
     // Cheney only: L_ could be moved during iteration.
     // gHeap.PushRoot(reinterpret_cast<RawObject**>(&L_));
   }
+
   ~ListIter() {
     // gHeap.PopRoot();
   }
@@ -443,10 +434,19 @@ class ListIter {
     return ret;
   }
 
+  // only for use with generators
+  List<T>* GetList() { return L_; }
+
  private:
   List<T>* L_;
   int i_;
 };
+
+// list(it) returns the iterator's backing list
+template <typename T>
+List<T>* list(ListIter<T> it) {
+  return list(it.GetList());
+}
 
 // TODO: Does using pointers rather than indices make this more efficient?
 template <class T>

@@ -406,3 +406,68 @@ break=0
 continue=0
 return=1
 ## END
+
+
+#### multi-level break with argument 
+
+# reported in issue #1459
+
+counterA=100
+counterB=100
+
+while test "$counterA" -gt 0
+do
+    counterA=$((counterA - 1))
+    while test "$counterB" -gt 0
+    do
+        counterB=$((counterB - 1))
+        if test "$counterB" = 50
+        then
+            break 2
+        fi
+    done
+done
+
+echo "$counterA"
+echo "$counterB"
+
+## STDOUT:
+99
+50
+## END
+
+
+#### multi-level continue
+
+for i in 1 2; do
+  for j in a b c; do
+    if test $j = b; then
+      continue
+    fi
+    echo $i $j
+  done
+done
+
+echo ---
+
+for i in 1 2; do
+  for j in a b c; do
+    if test $j = b; then
+      continue 2   # MULTI-LEVEL
+    fi
+    echo $i $j
+  done
+done
+
+
+## STDOUT:
+1 a
+1 c
+2 a
+2 c
+---
+1 a
+2 a
+## END
+
+ 

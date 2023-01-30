@@ -14,9 +14,8 @@ import sys
 
 from _devbuild.gen.option_asdl import builtin_i, option_i
 from _devbuild.gen.runtime_asdl import cmd_value, lvalue, value, scope_e
-from _devbuild.gen.syntax_asdl import source, Token
+from _devbuild.gen.syntax_asdl import source
 from asdl import pybase
-from asdl import runtime
 from core import alloc
 from core import completion
 from core import dev
@@ -51,7 +50,8 @@ def MakeBuiltinArgv(argv):
 
 
 def Tok(id_, val):
-  return Token(id_, runtime.NO_SPID, val)
+  # TODO: Tests could use this directly
+  return lexer.DummyToken(id_, val)
 
 
 def PrintableString(s):
@@ -93,7 +93,7 @@ def AsdlEqual(left, right):
     return True
 
   if isinstance(left, pybase.CompoundObj):
-    if left.tag != right.tag:
+    if left.tag_() != right.tag_():
       return False
 
     field_names = left.__slots__  # hack for now

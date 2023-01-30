@@ -184,17 +184,46 @@ TEST template_demo() {
   PASS();
 }
 
-void f(int a, int b = -1, const char* s = nullptr) {
+// prototype
+void f(int a, int b = -1, const char* s = nullptr);
+
+void f(int a, int b, const char* s) {
   log("");
   log("a = %d", a);
   log("b = %d", b);
   log("s = %p", s);
 }
 
+class Foo {
+ public:
+  // Is there any downside to these default args?
+  // Only for virtual functions.  Note that they are re-evaluated at each call
+  // site, which is fine.
+  //
+  // https://google.github.io/styleguide/cppguide.html#Default_Arguments
+  Foo(int i, bool always_strict = false);
+
+  void Print() {
+    log("i = %d", i);
+    log("always_strict = %d", always_strict);
+  }
+
+  int i;
+  bool always_strict;
+};
+
+Foo::Foo(int i, bool always_strict) : i(i), always_strict(always_strict) {
+}
+
 TEST default_args_demo() {
   f(42, 43, "foo");
   f(42, 43);
   f(42);
+
+  Foo a(98);
+  a.Print();
+  Foo b(99, true);
+  b.Print();
 
   PASS();
 }
@@ -804,6 +833,104 @@ TEST tea_macros_demo() {
   PASS();
 }
 
+namespace runtime_asdl {
+
+class lvalue_t {};
+
+class lvalue__Named : public lvalue_t {};
+
+class lvalue__Indexed : public lvalue_t {};
+
+#if 0
+namespace lvalue {
+  typedef lvalue__Named Named;
+  typedef lvalue__Indexed Indexed;
+}
+#endif
+
+// A CLASS can substitute for a namespace, but it can be "imported" with "using"
+struct lvalue {
+#if 0
+  class Named: public lvalue_t {
+  };
+  class Indexed: public lvalue_t {
+  };
+#endif
+
+  // typedef lvalue__Named Named;
+  // typedef lvalue__Indexed Indexed;
+  using Named = lvalue__Named;
+  using Indexed = lvalue__Indexed;
+};
+
+};  // namespace runtime_asdl
+
+namespace hnode_asdl {
+#if 0
+namespace hnode_e {
+  const int Record = 1;
+  const int Array = 2;
+  const int Leaf = 3;
+  const int External = 4;
+};
+#endif
+
+// Not enum class, a namespace
+struct hnode_e {
+#if 0
+  static const int Record = 1;
+  static const int Array = 2;
+  static const int Leaf = 3;
+  static const int External = 4;
+#endif
+  enum no_name {
+    Record = 1,
+    Array = 2,
+    Leaf = 3,
+    External = 4,
+  };
+};
+
+struct scope_e {
+  enum no_name {
+    Record = 1,
+    Array = 2,
+    Leaf = 3,
+    External = 4,
+  };
+};
+
+enum Other {
+  Record = 2,
+};
+
+};  // namespace hnode_asdl
+
+using hnode_asdl::hnode_e;
+using runtime_asdl::lvalue;
+// namespace lvalue = runtime_asdl::lvalue;
+
+TEST asdl_namespace_demo() {
+  lvalue::Named n;
+  lvalue::Indexed i;
+
+  (void)n;
+  (void)i;
+
+  log("Record = %d", hnode_e::Record);
+  log("Array = %d", hnode_e::Array);
+
+  // In Python, it's lvalue.Named(), not lvalue__Named
+  //
+  // Although you could change that everywhere
+  //
+  // from _devbuild.gen.runtime_asdl import lvalue
+  //
+  // can you reverse it?
+
+  PASS();
+}
+
 GREATEST_MAIN_DEFS();
 
 int main(int argc, char** argv) {
@@ -831,6 +958,8 @@ int main(int argc, char** argv) {
   RUN_TEST(param_passing_demo);
 
   RUN_TEST(tea_macros_demo);
+
+  RUN_TEST(asdl_namespace_demo);
 
   GREATEST_MAIN_END(); /* display results */
   return 0;

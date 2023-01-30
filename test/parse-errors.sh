@@ -20,7 +20,7 @@ banner() {
 
 is-oils-cpp() {
   case $SH in
-    _bin/*/*)
+    *_bin/*/osh)
       return 0
       ;;
   esac
@@ -353,6 +353,9 @@ bool-expr() {
 
   _error-case '[[ ;;; ]]'
   _error-case '[['
+
+  # Expected right )
+  _error-case '[[ ( a == b foo${var} ]]'
 }
 
 # These don't have any location information.

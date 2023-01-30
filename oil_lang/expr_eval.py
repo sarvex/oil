@@ -8,7 +8,7 @@ from _devbuild.gen.id_kind_asdl import Id, Kind
 from _devbuild.gen.syntax_asdl import (
     place_expr_e, place_expr_t, place_expr__Var, attribute, subscript,
 
-    speck, Token, 
+    Token, loc,
     single_quoted, double_quoted, braced_var_sub, simple_var_sub,
 
     expr_e, expr_t, expr__Var, expr__Const, sh_array_literal, command_sub,
@@ -71,23 +71,30 @@ def LookupVar(mem, var_name, which_scopes, span_id=runtime.NO_SPID):
 
   # Lookup WITHOUT dynamic scope.
   val = mem.GetValue(var_name, which_scopes=which_scopes)
-  if val.tag == value_e.Undef:
+  if val.tag_() == value_e.Undef:
     # TODO: Location info
-    e_die('Undefined variable %r', var_name, span_id=span_id)
+    e_die('Undefined variable %r' % var_name, loc.Span(span_id))
 
   UP_val = val
-  if val.tag == value_e.Str:
-    val = cast(value__Str, UP_val)
-    return val.s
-  if val.tag == value_e.MaybeStrArray:
-    val = cast(value__MaybeStrArray, UP_val)
-    return val.strs  # node: has None
-  if val.tag == value_e.AssocArray:
-    val = cast(value__AssocArray, UP_val)
-    return val.d
-  if val.tag == value_e.Obj:
-    val = cast(value__Obj, UP_val)
-    return val.obj
+  with tagswitch(val) as case:
+    if case(value_e.Str):
+      val = cast(value__Str, UP_val)
+      return val.s
+
+    elif case(value_e.MaybeStrArray):
+      val = cast(value__MaybeStrArray, UP_val)
+      return val.strs  # node: has None
+
+    elif case(value_e.AssocArray):
+      val = cast(value__AssocArray, UP_val)
+      return val.d
+
+    elif case(value_e.Obj):
+      val = cast(value__Obj, UP_val)
+      return val.obj
+
+    else:
+      raise NotImplementedError()
 
 
 def Stringify(py_val, word_part=None):
@@ -105,7 +112,7 @@ def Stringify(py_val, word_part=None):
   if not isinstance(py_val, (int, float, str)):
     raise error.Expr(
         'Expected string-like value (Bool, Int, Str), but got %s' % type(py_val),
-        part=word_part)
+        loc.WordPart(word_part))
 
   return str(py_val)
 
@@ -151,7 +158,7 @@ class OilEvaluator(object):
 
     if not isinstance(lhs_py, (int, float)):
       # TODO: Could point at the variable name
-      e_die("Object of type %r doesn't support +=", lhs_py.__class__.__name__)
+      e_die("Object of type %r doesn't support +=" % lhs_py.__class__.__name__)
 
     return lhs_py + rhs_py
 
@@ -272,8 +279,8 @@ class OilEvaluator(object):
     func_name = part.name.val[1:]
 
     fn_val = self.mem.GetValue(func_name)  # type: value_t
-    if fn_val.tag != value_e.Obj:
-      e_die("Expected function named %r, got %r ", func_name, fn_val)
+    if fn_val.tag_() != value_e.Obj:
+      e_die("Expected function named %r, got %r " % (func_name, fn_val))
     assert isinstance(fn_val, value__Obj)
 
     func = fn_val.obj
@@ -302,9 +309,9 @@ class OilEvaluator(object):
     except TypeError as e:
       # TODO: Add location info.  Right now we blame the variable name for
       # 'var' and 'setvar', etc.
-      raise error.Expr('Type error in expression: %s' % str(e))
+      raise error.Expr('Type error in expression: %s' % str(e), loc.Missing())
     except (AttributeError, ValueError) as e:
-      raise error.Expr('Expression eval error: %s' % str(e))
+      raise error.Expr('Expression eval error: %s' % str(e), loc.Missing())
 
     return part_val
 
@@ -313,7 +320,8 @@ class OilEvaluator(object):
     try:
       items = [Stringify(item, word_part=part) for item in val.obj]
     except TypeError as e:  # TypeError if it isn't iterable
-      raise error.Expr('Type error in expression: %s' % str(e), part=part)
+      raise error.Expr('Type error in expression: %s' % str(e),
+                       loc.WordPart(part))
 
     return items
 
@@ -324,9 +332,9 @@ class OilEvaluator(object):
       with state.ctx_OilExpr(self.mutable_opts):
         return self._EvalExpr(node)
     except TypeError as e:
-      raise error.Expr('Type error in expression: %s' % str(e), span_id=blame_spid)
+      raise error.Expr('Type error in expression: %s' % str(e), loc.Span(blame_spid))
     except (AttributeError, ValueError) as e:
-      raise error.Expr('Expression eval error: %s' % str(e), span_id=blame_spid)
+      raise error.Expr('Expression eval error: %s' % str(e), loc.Span(blame_spid))
 
     # Note: IndexError and KeyError are handled in more specific places
 
@@ -526,7 +534,7 @@ class OilEvaluator(object):
           try:
             result = float(self._ToNumber(left)) / self._ToNumber(right)  # floating point division
           except ZeroDivisionError:
-            raise error.Expr('divide by zero', token=node.op)
+            raise error.Expr('divide by zero', node.op)
 
           return result
 
@@ -625,7 +633,7 @@ class OilEvaluator(object):
           elif op.id == Id.Expr_TildeDEqual:
             # Approximate equality
             if not isinstance(left, str):
-              e_die('~== expects a string on the left', span_id=op.span_id)
+              e_die('~== expects a string on the left', op)
 
             left = left.strip()
             if isinstance(right, str):
@@ -648,8 +656,7 @@ class OilEvaluator(object):
                 return False
               return int(left) == right
 
-            e_die('~== expects Str, Int, or Bool on the right',
-                  span_id=op.span_id)
+            e_die('~== expects Str, Int, or Bool on the right', op)
 
           else:
             try:
@@ -660,11 +667,11 @@ class OilEvaluator(object):
                 result = not self._EvalMatch(left, right, False)
 
               else:
-                raise AssertionError(op.id)
+                raise AssertionError(op)
             except RuntimeError as e:
               # Status 2 indicates a regex parse error.  This is fatal in OSH but
               # not in bash, which treats [[ like a command with an exit code.
-              e_die_status(2, 'Invalid regex %r' % right, span_id=op.span_id)
+              e_die_status(2, 'Invalid regex %r' % right, op)
 
           if not result:
             return result
@@ -697,7 +704,7 @@ class OilEvaluator(object):
 
         values = []
         for i, value_expr in enumerate(node.values):
-          if value_expr.tag == expr_e.Implicit:
+          if value_expr.tag_() == expr_e.Implicit:
             v = self.LookupVar(keys[i])  # {name}
           else:
             v = self._EvalExpr(value_expr)
@@ -775,10 +782,10 @@ class OilEvaluator(object):
           result = obj[index]
         except KeyError:
           # TODO: expr.Subscript has no error location
-          raise error.Expr('dict entry not found', span_id=runtime.NO_SPID)
+          raise error.Expr('dict entry not found', loc.Missing())
         except IndexError:
           # TODO: expr.Subscript has no error location
-          raise error.Expr('index out of range', span_id=runtime.NO_SPID)
+          raise error.Expr('index out of range', loc.Missing())
 
         return result
 
@@ -799,7 +806,7 @@ class OilEvaluator(object):
           try:
             result = o[name]
           except KeyError:
-            raise error.Expr('dict entry not found', token=node.op)
+            raise error.Expr('dict entry not found', node.op)
 
           return result
 
@@ -874,7 +881,7 @@ class OilEvaluator(object):
         term = cast(braced_var_sub, UP_term)
 
         s = self.word_ev.EvalBracedVarSubToString(term)
-        spid = term.spids[0]
+        spid = term.left.span_id
 
       elif case(class_literal_term_e.SimpleVarSub):
         term = cast(simple_var_sub, UP_term)
@@ -888,8 +895,8 @@ class OilEvaluator(object):
       if char_int >= 128:
         # / [ '\x7f\xff' ] / is better written as / [ \x7f \xff ] /
         e_die("Use unquoted char literal for byte %d, which is >= 128"
-              " (avoid confusing a set of bytes with a sequence)", char_int,
-              span_id=spid)
+              " (avoid confusing a set of bytes with a sequence)" % char_int,
+              loc.Span(spid))
       out.append(CharCode(char_int, False, spid))
 
   def _EvalRegex(self, node):
@@ -940,44 +947,38 @@ class OilEvaluator(object):
           self._EvalClassLiteralTerm(t, new_terms)
         return re.CharClass(node.negated, new_terms)
 
-      elif case(re_e.Speck):
-        node = cast(speck, UP_node)
-
-        id_ = node.id
-        if id_ == Id.Expr_Dot:
-          return re.Primitive(Id.Re_Dot)
-        elif id_ == Id.Arith_Caret:  # ^
-          return re.Primitive(Id.Re_Start)
-        elif id_ == Id.Expr_Dollar:  # $
-          return re.Primitive(Id.Re_End)
-        else:
-          raise NotImplementedError(id_)
-
       elif case(re_e.Token):
         node = cast(Token, UP_node)
 
         id_ = node.id
         val = node.val
 
+        if id_ == Id.Expr_Dot:
+          return re.Primitive(Id.Re_Dot)
+
+        if id_ == Id.Arith_Caret:  # ^
+          return re.Primitive(Id.Re_Start)
+
+        if id_ == Id.Expr_Dollar:  # $
+          return re.Primitive(Id.Re_End)
+
         if id_ == Id.Expr_Name:
           if val == 'dot':
             return re.Primitive(Id.Re_Dot)
-          else:
-            raise NotImplementedError(val)
+          raise NotImplementedError(val)
 
-        elif id_ == Id.Expr_Symbol:
+        if id_ == Id.Expr_Symbol:
           if val == '%start':
             return re.Primitive(Id.Re_Start)
-          elif val == '%end':
+          if val == '%end':
             return re.Primitive(Id.Re_End)
-          else:
-            raise NotImplementedError(val)
+          raise NotImplementedError(val)
 
-        else:  # Must be Id.Char_{OneChar,Hex,Unicode4,Unicode8}
-          kind = consts.GetKind(id_)
-          assert kind == Kind.Char, id_
-          s = word_compile.EvalCStringToken(node)
-          return re.LiteralChars(s, node.span_id)
+        # Must be Id.Char_{OneChar,Hex,Unicode4,Unicode8}
+        kind = consts.GetKind(id_)
+        assert kind == Kind.Char, id_
+        s = word_compile.EvalCStringToken(node)
+        return re.LiteralChars(s, node.span_id)
 
       elif case(re_e.SingleQuoted):
         node = cast(single_quoted, UP_node)
@@ -995,7 +996,7 @@ class OilEvaluator(object):
         node = cast(braced_var_sub, UP_node)
 
         s = self.word_ev.EvalBracedVarSubToString(node)
-        return re.LiteralChars(s, node.spids[0])
+        return re.LiteralChars(s, node.left.span_id)
 
       elif case(re_e.SimpleVarSub):
         node = cast(simple_var_sub, UP_node)
@@ -1008,8 +1009,8 @@ class OilEvaluator(object):
 
         obj = self.LookupVar(node.name.val, span_id=node.name.span_id)
         if not isinstance(obj, objects.Regex):
-          e_die("Can't splice object of type %r into regex", obj.__class__,
-                token=node.name)
+          e_die("Can't splice object of type %r into regex" % obj.__class__,
+                node.name)
         # Note: we only splice the regex, and ignore flags.
         # Should we warn about this?
         return obj.regex

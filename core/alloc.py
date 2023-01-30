@@ -1,8 +1,8 @@
 """
-alloc.py - Sketch of memory management.
+alloc.py - FAILED attempt at memory management.
 
-This is roughly what you might do in C++, but it's probably overly complicated
-for Python.
+TODO: Just use a straightforward graph and rely on the garbage collector.
+There's NO ARENA.
 
 The idea is to save the LST for functions, but discard it for commands that
 have already executed.  Each statement/function can be parsed into a separate
@@ -11,7 +11,7 @@ Arena, and the entire Arena can be discarded at once.
 Also, we don't want to save comment lines.
 """
 
-from _devbuild.gen.syntax_asdl import line_span, source_t
+from _devbuild.gen.syntax_asdl import source_t, Token
 from asdl import runtime
 from core.pyerror import log
 
@@ -53,7 +53,7 @@ class Arena(object):
     self.line_num_strs = {}  # type: Dict[int, str]  # an INTERN table
 
     # indexed by span_id
-    self.spans = []  # type: List[line_span]
+    self.tokens = []  # type: List[Token]
 
     # reuse these instances in many line_span instances
     self.source_instances = []  # type: List[source_t]
@@ -110,8 +110,8 @@ class Arena(object):
 
   def GetCodeString(self, lbrace_spid, rbrace_spid):
     # type: (int, int) -> str
-    left_span = self.GetLineSpan(lbrace_spid)
-    right_span = self.GetLineSpan(rbrace_spid)
+    left_span = self.GetToken(lbrace_spid)
+    right_span = self.GetToken(rbrace_spid)
 
     assert self.line_srcs[left_span.line_id] == self.line_srcs[right_span.line_id]
 
@@ -145,22 +145,26 @@ class Arena(object):
     # type: (int) -> source_t
     return self.line_srcs[line_id]
 
-  def AddLineSpan(self, line_id, col, length):
-    # type: (int, int, int) -> int
-    """Save a line_span and return a new span ID for later retrieval."""
-    span_id = len(self.spans)  # spids are just array indices
-    span = line_span(line_id, col, length)
-    self.spans.append(span)
+  def NewTokenId(self, id_, col, length, line_id, val):
+    # type: (int, int, int, int, str) -> int
+    span_id = len(self.tokens)  # spids are just array indices
+    tok = Token(id_, col, length, line_id, span_id, val)
+    self.tokens.append(tok)
     return span_id
 
-  def GetLineSpan(self, span_id):
-    # type: (int) -> line_span
+  def NewToken(self, id_, col, length, line_id, val):
+    # type: (int, int, int, int, str) -> Token
+    span_id = self.NewTokenId(id_, col, length, line_id, val)
+    return self.tokens[span_id]
+
+  def GetToken(self, span_id):
+    # type: (int) -> Token
     assert span_id != runtime.NO_SPID, span_id
-    assert span_id < len(self.spans), \
-      'Span ID out of range: %d is greater than %d' % (span_id, len(self.spans))
-    return self.spans[span_id]
+    assert span_id < len(self.tokens), \
+      'Span ID out of range: %d is greater than %d' % (span_id, len(self.tokens))
+    return self.tokens[span_id]
 
   def LastSpanId(self):
     # type: () -> int
     """Return one past the last span ID."""
-    return len(self.spans)
+    return len(self.tokens)

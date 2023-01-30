@@ -6,17 +6,19 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "cpp/core_error.h"
-#include "cpp/core_pyerror.h"
 #include "mycpp/gc_builtins.h"
+// To avoid circular dependency with e_die()
+#include "prebuilt/core/error.mycpp.h"
+
+using id_kind_asdl::Id;  // used below
+using pyerror::e_die;
+using syntax_asdl::loc;
 
 namespace arith_parse {
 
 tdop::ParserSpec kArithSpec;
 
 }  // namespace arith_parse
-
-namespace Id = id_kind_asdl::Id;  // used below
 
 namespace bool_stat {
 
@@ -25,8 +27,8 @@ bool isatty(Str* fd_str, word_t* blame_word) {
   try {
     fd = to_int(fd_str);
   } catch (ValueError* e) {
-    // Note we don't have printf formatting here
-    e_die(StrFromC("Invalid file descriptor TODO"), blame_word);
+    e_die(StrFormat("Invalid file descriptor %r", fd_str),
+          Alloc<loc::Word>(blame_word));
   }
   // note: we don't check errno
   int result = ::isatty(fd);

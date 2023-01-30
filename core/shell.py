@@ -23,7 +23,6 @@ from core import pyos
 from core import process
 from core import shell_native
 from core import pyutil
-from core.pyutil import stderr_line
 from core import state
 from core import ui
 from core import util
@@ -61,7 +60,7 @@ from osh import split
 from osh import word_eval
 
 from mycpp import mylib
-from mycpp.mylib import writeln, kStderr
+from mycpp.mylib import print_stderr
 from pylib import os_path
 
 import libc
@@ -75,24 +74,27 @@ if TYPE_CHECKING:
   from frontend.py_readline import Readline
 
 
-if mylib.PYTHON:
-  def _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup):
-    # type: (cmd_eval.CommandEvaluator, builtin_comp.Complete, completion.Lookup) -> None
+def _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup):
+  # type: (cmd_eval.CommandEvaluator, builtin_comp.Complete, completion.Lookup) -> None
 
-    # register builtins and words
-    complete_builtin.Run(shell_native.MakeBuiltinArgv(['-E', '-A', 'command']))
-    # register path completion
-    # Add -o filenames?  Or should that be automatic?
-    complete_builtin.Run(shell_native.MakeBuiltinArgv(['-D', '-A', 'file']))
+  # register builtins and words
+  complete_builtin.Run(shell_native.MakeBuiltinArgv(['-E', '-A', 'command']))
+  # register path completion
+  # Add -o filenames?  Or should that be automatic?
+  complete_builtin.Run(shell_native.MakeBuiltinArgv(['-D', '-A', 'file']))
 
-    # TODO: Move this into demo/slow-completion.sh
-    if 1:
-      # Something for fun, to show off.  Also: test that you don't repeatedly hit
-      # the file system / network / coprocess.
-      A1 = completion.TestAction(['foo.py', 'foo', 'bar.py'])
-      A2 = completion.TestAction(['m%d' % i for i in xrange(5)], delay=0.1)
-      C1 = completion.UserSpec([A1, A2], [], [], lambda candidate: True)
-      comp_lookup.RegisterName('slowc', {}, C1)
+  # TODO: Move this into demo/slow-completion.sh
+  if 1:
+    # Something for fun, to show off.  Also: test that you don't repeatedly hit
+    # the file system / network / coprocess.
+    A1 = completion.TestAction(['foo.py', 'foo', 'bar.py'], 0.0)
+    l = [] # type: List[str]
+    for i in xrange(0, 5):
+        l.append('m%d' % i)
+
+    A2 = completion.TestAction(l, 0.1)
+    C1 = completion.UserSpec([A1, A2], [], [], completion.DefaultPredicate(), '', '')
+    comp_lookup.RegisterName('slowc', {}, C1)
 
 
 def SourceStartupFile(fd_state, rc_path, lang, parse_ctx, cmd_ev, errfmt):
@@ -147,8 +149,8 @@ class ShellOptHook(state.OptHook):
       if self.readline:
         self.readline.parse_and_bind("set editing-mode " + opt_name);
       else:
-        stderr_line(
-            "Warning: Can't set option %r because Oil wasn't built with line editing (e.g. GNU readline)", opt_name)
+        print_stderr(
+            "Warning: Can't set option %r because shell wasn't compiled with GNU readline" % opt_name)
         return False
 
       # Invert: they are mutually exclusive!
@@ -219,7 +221,7 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
   try:
     attrs = flag_spec.ParseMore('main', arg_r)
   except error.Usage as e:
-    stderr_line('osh usage error: %s', e.msg)
+    print_stderr('osh usage error: %s' % e.msg)
     return 2
   flag = arg_types.main(attrs.attrs)
 
@@ -337,8 +339,8 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
     try:
       debug_f = util.DebugFile(fd_state.OpenForWrite(debug_path))  # type: util._DebugFile
     except OSError as e:
-      stderr_line("osh: Couldn't open %r: %s", debug_path,
-                  posix.strerror(e.errno))
+      print_stderr("osh: Couldn't open %r: %s" %
+                   (debug_path, posix.strerror(e.errno)))
       return 2
   else:
     debug_f = util.NullDebugFile()
@@ -383,11 +385,10 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
   crash_dump_dir = environ.get('OSH_CRASH_DUMP_DIR', '')
   cmd_deps.dumper = dev.CrashDumper(crash_dump_dir)
 
-  if mylib.PYTHON:
-    comp_lookup = completion.Lookup()
+  comp_lookup = completion.Lookup()
 
-    # Various Global State objects to work around readline interfaces
-    compopt_state = completion.OptionState()
+  # Various Global State objects to work around readline interfaces
+  compopt_state = completion.OptionState()
 
   comp_ui_state = comp_ui.State()
   prompt_state = comp_ui.PromptState()
@@ -485,16 +486,16 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
   shell_native.AddBlock(builtins, mem, mutable_opts, dir_stack, cmd_ev,
                         shell_ex, hay_state, errfmt)
 
+  spec_builder = builtin_comp.SpecBuilder(cmd_ev, parse_ctx, word_ev, splitter,
+                                          comp_lookup, errfmt)
+  complete_builtin = builtin_comp.Complete(spec_builder, comp_lookup)
+  builtins[builtin_i.complete] = complete_builtin
+  builtins[builtin_i.compgen] = builtin_comp.CompGen(spec_builder)
+  builtins[builtin_i.compopt] = builtin_comp.CompOpt(compopt_state, errfmt)
+  builtins[builtin_i.compadjust] = builtin_comp.CompAdjust(mem)
+
   if mylib.PYTHON:
     builtins[builtin_i.json] = builtin_oil.Json(mem, expr_ev, errfmt)
-
-    spec_builder = builtin_comp.SpecBuilder(cmd_ev, parse_ctx, word_ev, splitter,
-                                            comp_lookup, errfmt)
-    complete_builtin = builtin_comp.Complete(spec_builder, comp_lookup)
-    builtins[builtin_i.complete] = complete_builtin
-    builtins[builtin_i.compgen] = builtin_comp.CompGen(spec_builder)
-    builtins[builtin_i.compopt] = builtin_comp.CompOpt(compopt_state, errfmt)
-    builtins[builtin_i.compadjust] = builtin_comp.CompAdjust(mem)
 
   builtins[builtin_i.trap] = builtin_trap.Trap(trap_state, parse_ctx, tracer, errfmt)
 
@@ -540,8 +541,8 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
       try:
         f = fd_state.Open(script_name)
       except (IOError, OSError) as e:
-        writeln("osh: Couldn't open %r: %s" %
-                (script_name, posix.strerror(e.errno)), kStderr)
+        print_stderr("osh: Couldn't open %r: %s" %
+                     (script_name, posix.strerror(e.errno)))
         return 1
       line_reader = reader.FileLineReader(f, arena)
 
@@ -579,8 +580,7 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
 
     # This is like an interactive shell, so we copy some initialization from
     # below.  Note: this may need to be tweaked.
-    if mylib.PYTHON:
-      _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup)
+    _InitDefaultCompletions(cmd_ev, complete_builtin, comp_lookup)
 
     # NOTE: called AFTER _InitDefaultCompletions.
     with state.ctx_ThisDir(mem, rc_path):
@@ -672,7 +672,7 @@ def Main(lang, arg_r, environ, login_shell, loader, readline):
     return status
 
   if flag.rcfile is not None:  # bash doesn't have this warning, but it's useful
-    stderr_line('osh warning: --rcfile ignored in non-interactive shell')
+    print_stderr('osh warning: --rcfile ignored in non-interactive shell')
 
   if exec_opts.noexec():
     status = 0

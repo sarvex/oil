@@ -91,7 +91,10 @@ def NinjaGraph(ru):
         'cpp/frontend_flag_spec.cc',
       ],
       deps = [
+        # Dependencies of //prebuilt/frontend/args.mycpp
         '//core/runtime.asdl',
+        '//frontend/syntax.asdl',
+
         '//frontend/arg_types',  # generated code
         '//mycpp/runtime',
       ],
@@ -99,9 +102,13 @@ def NinjaGraph(ru):
 
   ru.cc_binary(
       'cpp/frontend_flag_spec_test.cc',
-      deps = ['//cpp/frontend_flag_spec'],
+      deps = [
+        '//cpp/frontend_flag_spec',
+        '//prebuilt/frontend/args.mycpp',  # prebuilt args::Reader, etc.
+        ],
       # special -D CPP_UNIT_TEST
-      matrix = CPP_UNIT_MATRIX)
+      #matrix = CPP_UNIT_MATRIX)
+      matrix = ninja_lib.COMPILERS_VARIANTS)
 
   ru.cc_library(
       '//cpp/fanos_shared', 
@@ -137,7 +144,10 @@ def NinjaGraph(ru):
 
   ru.cc_binary(
       'cpp/osh_test.cc', 
-      deps = ['//cpp/osh'],
+      deps = [
+        '//cpp/osh',
+        '//prebuilt/core/error.mycpp',  # prebuilt e_die()
+        ],
       matrix = ninja_lib.COMPILERS_VARIANTS)
 
   ru.cc_library(
@@ -162,14 +172,18 @@ def NinjaGraph(ru):
       '//cpp/stdlib', 
       srcs = ['cpp/stdlib.cc'],
       deps = [
-        '//cpp/core',  # e_die()
-        '//mycpp/runtime'
+        '//mycpp/runtime',
+        # Annoying: because of the circular dep issue, we need to repeat
+        # dependencies of //prebuilt/core/error.mycpp.  We don't want to depend
+        # on it directly because we'd get duplicate symbols during linking.
+        '//frontend/syntax.asdl',
         ])
 
   ru.cc_binary(
       'cpp/stdlib_test.cc',
       deps = [
         '//cpp/stdlib',
+        '//prebuilt/core/error.mycpp',  # prebuilt e_die()
         ],
       matrix = ninja_lib.COMPILERS_VARIANTS)
 

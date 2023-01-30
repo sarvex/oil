@@ -8,30 +8,9 @@ import os
 import sys
 
 from mycpp import mylib
-from mycpp.mylib import log
+from mycpp.mylib import log, print_stderr
 
 from typing import Any
-
-
-if mylib.PYTHON:
-  # This is the Python version.  The C++ version is void p_die(Str *s, token*
-  # tok)
-  def p_die(msg, *args, **kwargs):
-    # type: (str, Any, Any) -> None
-    tok = kwargs.get('tok')
-    print(tok)
-
-  def e_die(msg, *args, **kwargs):
-    # type: (str, Any, Any) -> None
-    tok = kwargs.get('tok')
-    print(tok)
-
-  # note: translates to println_stderr().  TODO: change that?
-  def stderr_line(msg, *args):
-    # type: (str, Any) -> None
-    if args:
-      msg = msg % args
-    print(msg, file=sys.stderr)
 
 
 CONST = "myconst"
@@ -41,7 +20,7 @@ def run_tests():
 
   log('constant string')
 
-  stderr_line('stderr_line')
+  print_stderr('stderr_line')
 
   # Positional args
   log("log %d %s", 42, "LL")
@@ -50,24 +29,6 @@ def run_tests():
   log("[%%] %d %s", 42, "LL")
 
   log(CONST)
-
-  # Keyword args give location info for X_die()
-  # Just make sure these COMPILE.  We're not catching error::Parse or
-  # error::FatalRuntime here.
-
-  if 0:
-    span_id = 123
-
-    # Is the first arg a LITERAL string or a FORMAT string?  This is a
-    # problem with custom translation of e_die() combined with dynamic format
-    # strings.  You can get StrFormat(StrFormat()), leading to a crash.
-    e_die('hello %%%s' % 's', span_id=span_id)
-
-    p_die('hello %d %s', 3, "PP", span_id=span_id)
-
-    # No keyword arguments
-    e_die('hello %d', 42)
-    e_die('hello')
 
 
 def run_benchmarks():

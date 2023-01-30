@@ -5,18 +5,8 @@
 
 // Translation of Python's print().
 void print(Str* s) {
-  for (int i = 0; i < len(s); ++i) {
-    fputc(s->data()[i], stdout);
-  }
-  fputs("\n", stdout);
-}
-
-// Like print(..., file=sys.stderr), but Python code explicitly calls it.
-void println_stderr(Str* s) {
-  for (int i = 0; i < len(s); ++i) {
-    fputc(s->data()[i], stderr);
-  }
-  fputs("\n", stderr);
+  fputs(s->data_, stdout);  // print until first NUL
+  fputc('\n', stdout);
 }
 
 Str* str(int i) {
@@ -299,6 +289,18 @@ bool are_equal(Tuple2<Str*, int>* t1, Tuple2<Str*, int>* t2) {
   bool result = are_equal(t1->at0(), t2->at0());
   result = result && (t1->at1() == t2->at1());
   return result;
+}
+
+bool are_equal(Tuple2<int, int>* t1, Tuple2<int, int>* t2) {
+  return t1->at0() == t2->at0() && t1->at1() == t2->at1();
+}
+
+bool keys_equal(Tuple2<int, int>* t1, Tuple2<int, int>* t2) {
+  return are_equal(t1, t2);
+}
+
+bool keys_equal(Tuple2<Str*, int>* t1, Tuple2<Str*, int>* t2) {
+  return are_equal(t1, t2);
 }
 
 bool str_equals0(const char* c_string, Str* s) {

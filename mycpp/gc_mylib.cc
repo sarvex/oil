@@ -1,21 +1,26 @@
+#include "mycpp/gc_mylib.h"
+
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>  // isatty
 
-#include "mycpp/runtime.h"
-
 namespace mylib {
 
-void ProcessInit() {
-  // Turn off buffering of stdout for now.
-  // Note: ctx_FlushStdout() doesn't seem to be enough?
-  setvbuf(stdout, 0, _IONBF, 0);
+void InitCppOnly() {
+  // We don't seem need this now that we have ctx_FlushStdout().
+  // setvbuf(stdout, 0, _IONBF, 0);
 
-  // Line buffering isn't sufficient -- osh-runtime task fails with CPython
-  // configure
-  // setvbuf(stdout, 0, _IOLBF, 0);
+  // Arbitrary threshold of 50K objects based on eyeballing
+  // benchmarks/osh-runtime 10K or 100K aren't too bad either.
+  gHeap.Init(50000);
 }
 
+void print_stderr(Str* s) {
+  fputs(s->data_, stderr);  // prints until first NUL
+  fputc('\n', stderr);
+}
+
+#if 0
 void writeln(Str* s, int fd) {
   // TODO: handle errors and write in a loop, like posix::write().  If possible,
   // use posix::write directly, but that introduces some dependency problems.
@@ -27,6 +32,7 @@ void writeln(Str* s, int fd) {
     assert(0);
   }
 }
+#endif
 
 class MutableStr : public Str {};
 

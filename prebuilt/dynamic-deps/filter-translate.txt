@@ -3,7 +3,8 @@ _gen/
 .*_def\.py
 .*_spec\.py
 asdl/py.*
-core/py.*
+core/pyos.py
+core/pyutil.py
 core/optview.py
 frontend/py.*.py
 frontend/consts.py
@@ -14,5 +15,4 @@ oil_lang/builtin_oil.py
 oil_lang/expr_eval.py
 oil_lang/objects.py
 osh/bool_stat.py
-tools/.*
 tea/.*

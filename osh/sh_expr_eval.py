@@ -26,7 +26,8 @@ from _devbuild.gen.syntax_asdl import (
     compound_word, Token,
     sh_lhs_expr_e, sh_lhs_expr_t, sh_lhs_expr__Name, sh_lhs_expr__IndexedName,
     source, word_t,
-    braced_var_sub
+    braced_var_sub,
+    loc
 )
 from _devbuild.gen.types_asdl import bool_arg_type_e
 from asdl import runtime
@@ -112,7 +113,7 @@ def OldValue(lval, mem, exec_opts):
 
   val = mem.GetValue(var_name)
   if exec_opts and exec_opts.nounset() and val.tag_() == value_e.Undef:
-    e_die('Undefined variable %r', var_name)  # TODO: location info
+    e_die('Undefined variable %r' % var_name)  # TODO: location info
 
   UP_val = val
   with tagswitch(lval) as case:
@@ -131,7 +132,7 @@ def OldValue(lval, mem, exec_opts):
           # mycpp rewrite: add tmp.  cast() creates a new var in inner scope
           array_val = tmp
         else:
-          e_die("Can't use [] on value of type %s", ui.ValType(val))
+          e_die("Can't use [] on value of type %s" % ui.ValType(val))
 
       s = word_eval.GetArrayItem(array_val.strs, lval.index)
 
@@ -154,7 +155,7 @@ def OldValue(lval, mem, exec_opts):
           # mycpp rewrite: add tmp.  cast() creates a new var in inner scope
           assoc_val = tmp2
         else:
-          e_die("Can't use [] on value of type %s", ui.ValType(val))
+          e_die("Can't use [] on value of type %s" % ui.ValType(val))
 
       s = assoc_val.d.get(lval.key)
       if s is None:
@@ -252,11 +253,8 @@ class UnsafeArith(object):
 
         # this affects builtins 'unset' and 'printf'
         # TODO: Don't print outer location?
-        e_die('Invalid var ref', span_id=static_ref_spid)
+        e_die('Invalid var ref', loc.Span(static_ref_spid))
 
-    # Hack: There is no ${ on the "virtual" braced_var_sub, but we can add one
-    # for error messages
-    bvs_part.spids.append(static_ref_spid)
     return bvs_part
 
 
@@ -299,14 +297,14 @@ class ArithEvaluator(object):
       try:
         integer = int(s, 16)
       except ValueError:
-        e_strict('Invalid hex constant %r', s, span_id=span_id)
+        e_strict('Invalid hex constant %r' % s, loc.Span(span_id))
       return integer
 
     if s.startswith('0'):
       try:
         integer = int(s, 8)
       except ValueError:
-        e_strict('Invalid octal constant %r', s, span_id=span_id)
+        e_strict('Invalid octal constant %r' % s, loc.Span(span_id))
       return integer
 
     if '#' in s:
@@ -314,7 +312,7 @@ class ArithEvaluator(object):
       try:
         base = int(b)
       except ValueError:
-        e_strict('Invalid base for numeric constant %r',  b, span_id=span_id)
+        e_strict('Invalid base for numeric constant %r' % b, loc.Span(span_id))
 
       integer = 0
       for ch in digits:
@@ -329,10 +327,10 @@ class ArithEvaluator(object):
         elif ch.isdigit():
           digit = int(ch)
         else:
-          e_strict('Invalid digits for numeric constant %r', digits, span_id=span_id)
+          e_strict('Invalid digits for numeric constant %r' % digits, loc.Span(span_id))
 
         if digit >= base:
-          e_strict('Digits %r out of range for base %d', digits, base, span_id=span_id)
+          e_strict('Digits %r out of range for base %d' % (digits, base), loc.Span(span_id))
 
         integer = integer * base + digit
       return integer
@@ -359,21 +357,21 @@ class ArithEvaluator(object):
             node2 = a_parser.Parse()  # may raise error.Parse
           except error.Parse as e:
             self.errfmt.PrettyPrintError(e)
-            e_die('Parse error in recursive arithmetic', span_id=e.span_id)
+            e_die('Parse error in recursive arithmetic', e.location)
 
         # Prevent infinite recursion of $(( 1x )) -- it's a word that evaluates
         # to itself, and you don't want to reparse it as a word.
         if node2.tag_() == arith_expr_e.Word:
-          e_die("Invalid integer constant %r", s, span_id=span_id)
+          e_die("Invalid integer constant %r" % s, loc.Span(span_id))
         else:
           integer = self.EvalToInt(node2)
       else:
         if len(s.strip()) == 0 or match.IsValidVarName(s):
           # x42 could evaluate to 0
-          e_strict("Invalid integer constant %r", s, span_id=span_id)
+          e_strict("Invalid integer constant %r" % s, loc.Span(span_id))
         else:
           # 42x is always fatal!
-          e_die("Invalid integer constant %r", s, span_id=span_id)
+          e_die("Invalid integer constant %r" % s, loc.Span(span_id))
 
     return integer
 
@@ -384,7 +382,7 @@ class ArithEvaluator(object):
       with tagswitch(val) as case:
         if case(value_e.Undef):  # 'nounset' already handled before got here
           # Happens upon a[undefined]=42, which unfortunately turns into a[0]=42.
-          e_strict('Undefined value in arithmetic context', span_id=span_id)
+          e_strict('Undefined value in arithmetic context', loc.Span(span_id))
 
         elif case(value_e.Int):
           val = cast(value__Int, UP_val)
@@ -412,8 +410,8 @@ class ArithEvaluator(object):
     # strict_arith.
     # In bash, (( a )) is like (( a[0] )), but I don't want that.
     # And returning '0' gives different results.
-    e_die("Expected a value convertible to integer, got %s",
-          ui.ValType(val), span_id=span_id)
+    e_die("Expected a value convertible to integer, got %s" %
+          ui.ValType(val), loc.Span(span_id))
 
   def _EvalLhsAndLookupArith(self, node):
     # type: (arith_expr_t) -> Tuple[int, lvalue_t]
@@ -491,7 +489,7 @@ class ArithEvaluator(object):
         var_name = tok.val
         val = self.mem.GetValue(var_name)
         if val.tag_() == value_e.Undef and self.exec_opts.nounset():
-          e_die('Undefined variable %r', var_name, token=tok)
+          e_die('Undefined variable %r' % var_name, tok)
         return val
 
       elif case(arith_expr_e.Word):  # $(( $x )) $(( ${x}${y} )), etc.
@@ -637,7 +635,7 @@ class ArithEvaluator(object):
 
             else:
               # TODO: Add error context
-              e_die('Expected array or assoc in index expression, got %s',
+              e_die('Expected array or assoc in index expression, got %s' %
                     ui.ValType(left))
 
           if s is None:
@@ -666,7 +664,7 @@ class ArithEvaluator(object):
           if rhs == 0:
             # TODO: Could also blame /
             e_die('Divide by zero',
-                  span_id=location.SpanForArithExpr(node.right))
+                  loc.Span(location.SpanForArithExpr(node.right)))
 
           ret = lhs / rhs
 
@@ -674,7 +672,7 @@ class ArithEvaluator(object):
           if rhs == 0:
             # TODO: Could also blame /
             e_die('Divide by zero',
-                  span_id=location.SpanForArithExpr(node.right))
+                  loc.Span(location.SpanForArithExpr(node.right)))
 
           ret = lhs % rhs
 
@@ -772,6 +770,7 @@ class ArithEvaluator(object):
     with tagswitch(node) as case:
       if case(sh_lhs_expr_e.Name):  # a=x
         node = cast(sh_lhs_expr__Name, UP_node)
+        assert node.name is not None
 
         # Note: C++ constructor doesn't take spids directly.  Should we add that?
         lval1 = lvalue.Named(node.name)
@@ -780,16 +779,17 @@ class ArithEvaluator(object):
 
       elif case(sh_lhs_expr_e.IndexedName):  # a[1+2]=x
         node = cast(sh_lhs_expr__IndexedName, UP_node)
+        assert node.name is not None
 
         if self.mem.IsAssocArray(node.name):
           key = self.EvalWordToString(node.index)
           lval2 = lvalue.Keyed(node.name, key)
-          lval2.spids.append(node.spids[0])
+          lval2.spids.append(node.left.span_id)
           lval = lval2
         else:
           index = self.EvalToInt(node.index)
           lval3 = lvalue.Indexed(node.name, index)
-          lval3.spids.append(node.spids[0])
+          lval3.spids.append(node.left.span_id)
           lval = lval3
 
       else:
@@ -849,7 +849,7 @@ class ArithEvaluator(object):
       return lval
 
     # e.g. unset 'x-y'.  status 2 for runtime parse error
-    e_die_status(2, 'Invalid place to modify', span_id=span_id)
+    e_die_status(2, 'Invalid place to modify', loc.Span(span_id))
 
 
 class BoolEvaluator(ArithEvaluator):
@@ -958,7 +958,7 @@ class BoolEvaluator(ArithEvaluator):
             val = self.mem.GetValue(s)
             return val.tag_() != value_e.Undef
 
-          e_die("%s isn't implemented", ui.PrettyId(op_id))  # implicit location
+          e_die("%s isn't implemented" % ui.PrettyId(op_id))  # implicit location
 
         raise AssertionError(arg_type)
 
@@ -1029,7 +1029,7 @@ class BoolEvaluator(ArithEvaluator):
               # Status 2 indicates a regex parse error.  This is fatal in OSH but
               # not in bash, which treats [[ like a command with an exit code.
               msg = e.message  # type: str
-              e_die_status(2, 'Invalid regex %r: %s' % (s2, msg), word=node.right)
+              e_die_status(2, 'Invalid regex %r: %s' % (s2, msg), loc.Word(node.right))
 
             if matches is None:
               return False

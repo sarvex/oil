@@ -287,10 +287,11 @@ other-tests-tasks() {
   cat <<EOF
 dump-distro            soil/worker.sh dump-distro                 -
 dump-locale            soil/worker.sh dump-locale                 -
+build-minimal          build/py.sh minimal                        -
 configure-test         ./configure-test.sh soil_run               -
 time-test              benchmarks/time-test.sh soil-run           -
 tsv-lib-test           test/tsv-lib-test.sh soil-run              -
-osh2oil                test/osh2oil.sh soil-run                   -
+ysh-prettify           test/ysh-prettify.sh soil-run              -
 R-test                 devtools/R-test.sh soil-run                -
 xargs-test             test/other.sh xargs-test                   -
 csv2html-test          test/other.sh csv2html-test                -
@@ -300,7 +301,6 @@ opy-count-lines        opy/soil.sh count-lines                    -
 test-gold              opy/soil.sh test-gold                      -
 build-oil-repo         opy/soil.sh build-oil-repo                 -
 regtest-compile        opy/soil.sh regtest-compile                -
-regtest-verify-golden  opy/soil.sh regtest-verify-golden          -
 EOF
 }
 

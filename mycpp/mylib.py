@@ -24,23 +24,6 @@ PYTHON = True
 # Use POSIX name directly
 STDIN_FILENO = 0
 
-# Short versions of STDOUT_FILENO and STDERR_FILENO
-kStdout = 1
-kStderr = 2
-
-def writeln(s, fd=kStdout):
-  # type: (str) -> None
-  """Write a line.  The name is consistent with JavaScript writeln() and Rust.
-
-  e.g.
-  writeln("x = %d" % x, kStderr)
-
-  TODO: The Oil interpreter shouldn't use print() anywhere.  Instead it can use
-  writeln(s) and writeln(s, kStderr)
-  """
-  posix.write(fd, s)
-  posix.write(fd, '\n')
-
 
 def MaybeCollect():
   # type: () -> None
@@ -60,18 +43,15 @@ def NewDict():
   return collections_.OrderedDict()
 
 
-def log(msg, *args):
-  # type: (str, *Any) -> None
-  """Only for test code"""
-  if args:
-    msg = msg % args
-  print(msg, file=sys.stderr)
+def print_stderr(s):
+  # type: (str) -> None
+  """Print a message to stderr for the user.
 
-
-def p_die(msg, *args):
-  """Only for test code, like mycpp/examples/varargs"""
-  # type: (str, *Any) -> None
-  raise RuntimeError(msg % args)
+  This should be used sparingly, since it doesn't have location info, like
+  ui.ErrorFormatter does.  We use it to print fatal I/O errors that were only
+  caught at the top level.
+  """
+  print(s, file=sys.stderr)
 
 
 BufWriter = cStringIO.StringIO
@@ -79,30 +59,10 @@ BufWriter = cStringIO.StringIO
 BufLineReader = cStringIO.StringIO
 
 
-class File(object):
-  """Custom file wrapper for Unix I/O like write() read()
-  
-  Not C I/O like fwrite() fread().  There should be no flush().
-  """
-  def __init__(self, fd):
-    # type: (int) -> None
-    self.fd = fd
-
-  def write(self, s):
-    # type: (str) -> None
-    posix.write(self.fd, s)
-
-  def writeln(self, s):
-    # type: (str) -> None
-    writeln(s, fd=self.fd)
-
-
-# TODO: Can return File(1)
 def Stdout():
   return sys.stdout
 
 
-# TODO: Can return File(2)
 def Stderr():
   return sys.stderr
 
@@ -140,7 +100,7 @@ class tagswitch(object):
 
   def __init__(self, node):
     # type: (int) -> None
-    self.tag = node.tag
+    self.tag = node.tag_()
 
   def __enter__(self):
     # type: () -> tagswitch
@@ -208,3 +168,50 @@ def str_cmp(s1, s2):
     return -1
   else:
     return 1
+
+
+def log(msg, *args):
+  # type: (str, *Any) -> None
+  """Only for mycpp/examples"""
+  if args:
+    msg = msg % args
+  print(msg, file=sys.stderr)
+
+
+if 0:
+  # Prototype of Unix file descriptor I/O, compared with FILE* libc I/O.
+  # Doesn't seem like we need this now.
+
+  # Short versions of STDOUT_FILENO and STDERR_FILENO
+  kStdout = 1
+  kStderr = 2
+
+  def writeln(s, fd=kStdout):
+    # type: (str) -> None
+    """Write a line.  The name is consistent with JavaScript writeln() and Rust.
+
+    e.g.
+    writeln("x = %d" % x, kStderr)
+
+    TODO: The Oil interpreter shouldn't use print() anywhere.  Instead it can use
+    writeln(s) and writeln(s, kStderr)
+    """
+    posix.write(fd, s)
+    posix.write(fd, '\n')
+
+  class File(object):
+    """Custom file wrapper for Unix I/O like write() read()
+    
+    Not C I/O like fwrite() fread().  There should be no flush().
+    """
+    def __init__(self, fd):
+      # type: (int) -> None
+      self.fd = fd
+
+    def write(self, s):
+      # type: (str) -> None
+      posix.write(self.fd, s)
+
+    def writeln(self, s):
+      # type: (str) -> None
+      writeln(s, fd=self.fd)

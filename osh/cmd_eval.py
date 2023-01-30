@@ -20,6 +20,7 @@ import sys
 from _devbuild.gen.id_kind_asdl import Id, Id_str
 from _devbuild.gen.option_asdl import option_i
 from _devbuild.gen.syntax_asdl import (
+    assign_op_e,
     compound_word,
     command_e, command_t,
     command__AndOr, command__Case, command__CommandList, command__ControlFlow,
@@ -32,26 +33,25 @@ from _devbuild.gen.syntax_asdl import (
     command__WhileUntil,
     condition_e, condition_t, condition__Shell, condition__Oil,
     BraceGroup, expr__BlockArg, ArgList,
-    assign_op_e,
+    expr_t,
     place_expr__Var,
     proc_sig_e, proc_sig__Closed,
     redir_param_e, redir_param__HereDoc, proc_sig,
     for_iter_e, for_iter__Words, for_iter__Oil,
-    Token, expr_t
+    Token, loc,
 )
 from _devbuild.gen.runtime_asdl import (
     lvalue, lvalue_e, lvalue__ObjIndex, lvalue__ObjAttr,
     value, value_e, value_t, value__Str, value__MaybeStrArray,
     redirect, redirect_arg, scope_e,
     cmd_value_e, cmd_value__Argv, cmd_value__Assign,
-    CommandStatus, StatusArray, Proc
+    CommandStatus, StatusArray, Proc, flow_e
 )
 from _devbuild.gen.types_asdl import redir_arg_type_e
 
 from asdl import runtime
 from core import dev
 from core import error
-from core.error import _ControlFlow
 from core.pyerror import log, e_die, e_die_status
 from core import pyos  # Time().  TODO: rename
 from core import state
@@ -305,8 +305,8 @@ class CommandEvaluator(object):
     builtin_func = self.assign_builtins.get(cmd_val.builtin_id)
     if builtin_func is None:
       # This only happens with alternative Oil interpreters.
-      e_die("Assignment builtin %r not configured",
-            cmd_val.argv[0], span_id=cmd_val.arg_spids[0])
+      e_die("Assignment builtin %r not configured" % cmd_val.argv[0],
+            loc.Span(cmd_val.arg_spids[0]))
 
     with vm.ctx_FlushStdout():
       with ui.ctx_Location(self.errfmt, cmd_val.arg_spids[0]):
@@ -389,10 +389,9 @@ class CommandEvaluator(object):
       #   { ls; false; } | wc -l; echo hi  # Point to | or first { ?
       if blame_spid != runtime.NO_SPID:
         span_id = blame_spid
-        #pass
 
       msg = '%s failed with status %d' % (desc, status)
-      raise error.ErrExit(msg, span_id=span_id, status=status,
+      raise error.ErrExit(status, msg, loc.Span(span_id),
                           show_code=cmd_st.show_code)
 
   def _EvalRedirect(self, r):
@@ -420,7 +419,7 @@ class CommandEvaluator(object):
           if len(filename) == 0:
             # Whether this is fatal depends on errexit.
             raise error.RedirectEval(
-                "Redirect filename can't be empty", word=arg_word)
+                "Redirect filename can't be empty", loc.Word(arg_word))
 
           result.arg = redirect_arg.Path(filename)
           return result
@@ -430,7 +429,7 @@ class CommandEvaluator(object):
           t = val.s
           if len(t) == 0:
             raise error.RedirectEval(
-                "Redirect descriptor can't be empty", word=arg_word)
+                "Redirect descriptor can't be empty", loc.Word(arg_word))
             return None
 
           try:
@@ -444,7 +443,7 @@ class CommandEvaluator(object):
           except ValueError:
             raise error.RedirectEval(
                 'Invalid descriptor %r.  Expected D, -, or D- where D is an '
-                'integer' % t, word=arg_word)
+                'integer' % t, loc.Word(arg_word))
             return None
 
           return result
@@ -566,7 +565,7 @@ class CommandEvaluator(object):
     # type: (List[env_pair], int) -> None
     """For FOO=1 cmd."""
     for e_pair in more_env:
-      val = self.word_ev.EvalWordToString(e_pair.val)
+      val = self.word_ev.EvalRhsWord(e_pair.val)
       # Set each var so the next one can reference it.  Example:
       # FOO=1 BAR=$FOO ls /
       self.mem.SetValue(lvalue.Named(e_pair.name), val, scope_e.LocalOnly,
@@ -579,8 +578,8 @@ class CommandEvaluator(object):
 
     if _HasManyStatuses(node):
       node_str = ui.CommandType(node)
-      e_die("strict_errexit only allows simple commands in conditionals (got %s). ",
-            node_str, span_id=location.SpanForCommand(node))
+      e_die("strict_errexit only allows simple commands in conditionals (got %s). " %
+            node_str, loc.Span(location.SpanForCommand(node)))
 
   def _StrictErrExitList(self, node_list):
     # type: (List[command_t]) -> None
@@ -596,14 +595,14 @@ class CommandEvaluator(object):
 
     if len(node_list) > 1:
       e_die("strict_errexit only allows a single command.  Hint: use 'try'.",
-            span_id=location.SpanForCommand(node_list[0]))
+            loc.Span(location.SpanForCommand(node_list[0])))
 
     assert len(node_list) > 0
     node = node_list[0]
     if _HasManyStatuses(node):  # TODO: consolidate error message with above
       node_str = ui.CommandType(node)
-      e_die("strict_errexit only allows simple commands in conditionals (got %s). ",
-            node_str, span_id=location.SpanForCommand(node))
+      e_die("strict_errexit only allows simple commands in conditionals (got %s). " %
+            node_str, loc.Span(location.SpanForCommand(node)))
 
   def _EvalCondition(self, cond, spid):
     # type: (condition_t, int) -> bool
@@ -682,9 +681,10 @@ class CommandEvaluator(object):
 
           typed_args = None  # type: ArgList
           if node.typed_args:
-            # Copy positional args because we may append an arg
-            typed_args = ArgList(list(node.typed_args.positional), node.typed_args.named)
-            typed_args.spids = node.typed_args.spids
+            orig = node.typed_args
+            # COPY positional args because we may append an arg
+            typed_args = ArgList(
+                orig.left, list(orig.positional), orig.named, orig.right)
 
             # the block is the last argument
             if node.block:
@@ -697,13 +697,17 @@ class CommandEvaluator(object):
               typed_args = ArgList()
               block_expr = expr__BlockArg(node.block)
               typed_args.positional.append(block_expr)
-              typed_args.spids.append(node.block.spids[0])
+
+              # TODO: Since we only have { } and not (), copy them from
+              # BraceGroup
+              typed_args.left = node.block.left
+              typed_args.right = node.block.right
+
           cmd_val.typed_args = typed_args
        
         else:
           if node.block:
-            e_die("ShAssignment builtins don't accept blocks",
-                  span_id=node.block.spids[0])
+            e_die("ShAssignment builtins don't accept blocks", node.block.left)
           cmd_val = cast(cmd_value__Assign, UP_cmd_val)
 
         # NOTE: RunSimpleCommand never returns when do_fork=False!
@@ -747,7 +751,7 @@ class CommandEvaluator(object):
         node = cast(command__Pipeline, UP_node)
         cmd_st.check_errexit = True
         if len(node.stderr_indices):
-          e_die("|& isn't supported", span_id=node.spids[0])
+          e_die("|& isn't supported", loc.Span(node.spids[0]))
 
         # TODO: how to get errexit_spid into _Execute?
         # It can be the span_id of !, or of the pipeline component that failed,
@@ -1003,10 +1007,10 @@ class CommandEvaluator(object):
         if node.arg_word:  # Evaluate the argument
           str_val = self.word_ev.EvalWordToString(node.arg_word)
 
-          # This is an OVERLOADING of strict_control_flow, which also has to do
-          # with break/continue at top level.  # We need 'return $empty' to be valid
-          # for libtool.  It also has the side effect of making 'return ""'
-          # valid, which shells other than zsh fail on.  That seems OK.
+          # Quirk: We need 'return $empty' to be valid for libtool.  This is
+          # another meaning of strict_control_flow, which also has to do with
+          # break/continue at top level.  It has the side effect of making
+          # 'return ""' valid, which shells other than zsh fail on.
           if len(str_val.s) == 0 and not self.exec_opts.strict_control_flow():
             arg = 0
           else:
@@ -1015,13 +1019,13 @@ class CommandEvaluator(object):
               # disallows -1!  Others wrap to 255.
               arg = int(str_val.s)
             except ValueError:
-              e_die('%r expected a number, got %r',
-                    node.token.val, str_val.s, word=node.arg_word)
+              e_die('%r expected a number, got %r' %
+                    (node.token.val, str_val.s), loc.Word(node.arg_word))
         else:
           if tok.id in (Id.ControlFlow_Exit, Id.ControlFlow_Return):
             arg = self.mem.LastStatus()
           else:
-            arg = 0  # break 0 levels, nothing for continue
+            arg = 1  # break or continue 1 level by default
 
         self.tracer.OnControlFlow(tok.val, arg)
 
@@ -1036,11 +1040,11 @@ class CommandEvaluator(object):
           if tok.id == Id.ControlFlow_Exit:
             raise util.UserExit(arg)  # handled differently than other control flow
           else:
-            raise _ControlFlow(tok, arg)
+            raise vm.ControlFlow(tok, arg)
         else:
           msg = 'Invalid control flow at top level'
           if self.exec_opts.strict_control_flow():
-            e_die(msg, token=tok)
+            e_die(msg, tok)
           else:
             # Only print warnings, never fatal.
             # Bash oddly only exits 1 for 'return', but no other shell does.
@@ -1119,18 +1123,13 @@ class CommandEvaluator(object):
                 break
               status = self._Execute(node.body)  # last one wins
 
-            except _ControlFlow as e:
-              # Important: 'break' can occur in the CONDITION or body
-              if e.IsBreak():
-                status = 0
+            except vm.ControlFlow as e:
+              status = 0
+              action = e.HandleLoop()
+              if action == flow_e.Break:
                 break
-              elif e.IsContinue():
-                status = 0
-                continue
-              else:  # return needs to pop up more
+              elif action == flow_e.Raise:
                 raise
-
-            mylib.MaybeCollect()  # manual GC point
 
       elif case(command_e.ForEach):
         node = cast(command__ForEach, UP_node)
@@ -1182,7 +1181,7 @@ class CommandEvaluator(object):
                 else:
                   # This is similar to a parse error
                   e_die_status(2, 'List iteration expects at most 2 loop variables',
-                               span_id=node.spids[0])
+                               loc.Span(node.spids[0]))
 
                 index =0
                 for item in obj:
@@ -1194,13 +1193,12 @@ class CommandEvaluator(object):
 
                   try:
                     status = self._Execute(node.body)  # last one wins
-                  except _ControlFlow as e:
-                    if e.IsBreak():
-                      status = 0
+                  except vm.ControlFlow as e:
+                    status = 0
+                    action = e.HandleLoop()
+                    if action == flow_e.Break:
                       break
-                    elif e.IsContinue():
-                      status = 0
-                    else:  # return needs to pop up more
+                    elif action == flow_e.Raise:
                       raise
                   index += 1
 
@@ -1238,20 +1236,19 @@ class CommandEvaluator(object):
 
                   try:
                     status = self._Execute(node.body)  # last one wins
-                  except _ControlFlow as e:
-                    if e.IsBreak():
-                      status = 0
+                  except vm.ControlFlow as e:
+                    status = 0
+                    action = e.HandleLoop()
+                    if action == flow_e.Break:
                       break
-                    elif e.IsContinue():
-                      status = 0
-                    else:  # return needs to pop up more
+                    elif action == flow_e.Raise:
                       raise
 
                   index += 1
 
               else:
                 raise error.Expr("Expected list or dict, got %r" % type(obj),
-                                 token=iter_expr_blame)
+                                 iter_expr_blame)
 
         else:
           with ctx_LoopLevel(self):
@@ -1266,7 +1263,7 @@ class CommandEvaluator(object):
             else:
               # This is similar to a parse error
               e_die_status(2, 'List iteration expects at most 2 loop variables',
-                           span_id=node.spids[0])
+                           loc.Span(node.spids[0]))
 
             index = 0
             for x in iter_list:
@@ -1282,17 +1279,14 @@ class CommandEvaluator(object):
 
               try:
                 status = self._Execute(node.body)  # last one wins
-              except _ControlFlow as e:
-                if e.IsBreak():
-                  status = 0
+              except vm.ControlFlow as e:
+                status = 0
+                action = e.HandleLoop()
+                if action == flow_e.Break:
                   break
-                elif e.IsContinue():
-                  status = 0
-                else:  # return needs to pop up more
+                elif action == flow_e.Raise:
                   raise
               index += 1
-
-              mylib.MaybeCollect()  # manual GC point
 
       elif case(command_e.ForExpr):
         node = cast(command__ForExpr, UP_node)
@@ -1316,26 +1310,23 @@ class CommandEvaluator(object):
 
             try:
               status = self._Execute(body)
-            except _ControlFlow as e:
-              if e.IsBreak():
-                status = 0
+            except vm.ControlFlow as e:
+              status = 0
+              action = e.HandleLoop()
+              if action == flow_e.Break:
                 break
-              elif e.IsContinue():
-                status = 0
-              else:  # return needs to pop up more
+              elif action == flow_e.Raise:
                 raise
 
             if update:
               self.arith_ev.Eval(update)
 
-            mylib.MaybeCollect()  # manual GC point
-
       elif case(command_e.ShFunction):
         node = cast(command__ShFunction, UP_node)
         # name_spid is node.spids[1].  Dynamic scope.
         if node.name in self.procs and not self.exec_opts.redefine_proc():
-          e_die("Function %s was already defined (redefine_proc)", node.name,
-              span_id=node.spids[1])
+          e_die("Function %s was already defined (redefine_proc)" % node.name,
+              loc.Span(node.spids[1]))
         self.procs[node.name] = Proc(
             node.name, node.spids[1], proc_sig.Open(), node.body, [], True)
 
@@ -1345,8 +1336,8 @@ class CommandEvaluator(object):
         node = cast(command__Proc, UP_node)
 
         if node.name.val in self.procs and not self.exec_opts.redefine_proc():
-          e_die("Proc %s was already defined (redefine_proc)", node.name.val,
-              span_id=node.name.span_id)
+          e_die("Proc %s was already defined (redefine_proc)" % node.name.val,
+                node.name)
 
         defaults = None  # type: List[value_t]
         if mylib.PYTHON:
@@ -1454,6 +1445,9 @@ class CommandEvaluator(object):
     # and maybe throw an exception.
     self.RunPendingTraps()
 
+    # Manual GC point before every statement
+    mylib.MaybeCollect()
+
     # This has to go around redirect handling because the process sub could be
     # in the redirect word:
     #     { echo one; echo two; } > >(tac)
@@ -1484,7 +1478,7 @@ class CommandEvaluator(object):
               check_errexit = cmd_st.check_errexit
             except error.FailGlob as e:
               if not e.HasLocation():  # Last resort!
-                e.span_id = self.mem.CurrentSpanId()
+                e.location = loc.Span(self.mem.CurrentSpanId())
               self.errfmt.PrettyPrintError(e, prefix='failglob: ')
               status = 1
               check_errexit = True
@@ -1609,7 +1603,7 @@ class CommandEvaluator(object):
 
   def ExecuteAndCatch(self, node, cmd_flags=0):
     # type: (command_t, int) -> Tuple[bool, bool]
-    """Execute a subprogram, handling _ControlFlow and fatal exceptions.
+    """Execute a subprogram, handling vm.ControlFlow and fatal exceptions.
 
     Args:
       node: LST subtree
@@ -1639,11 +1633,11 @@ class CommandEvaluator(object):
     is_fatal = False
     is_errexit = False
 
-    err = None  # type: error._ErrorWithLocation
+    err = None  # type: error.FatalRuntime
 
     try:
       status = self._Execute(node)
-    except _ControlFlow as e:
+    except vm.ControlFlow as e:
       if cmd_flags & RaiseControlFlow:
         raise  # 'eval break' and 'source return.sh', etc.
       else:
@@ -1664,7 +1658,7 @@ class CommandEvaluator(object):
           # strict_control_flow if the incompatibility causes problems.
           status = 1
     except error.Parse as e:
-      self.dumper.MaybeCollect(self, e)  # Do this before unwinding stack
+      self.dumper.MaybeRecord(self, e)  # Do this before unwinding stack
       raise
     except error.ErrExit as e:
       err = e
@@ -1676,14 +1670,14 @@ class CommandEvaluator(object):
       status = err.ExitStatus()
 
       is_fatal = True
-      self.dumper.MaybeCollect(self, err)  # Do this before unwinding stack
+      self.dumper.MaybeRecord(self, err)  # Do this before unwinding stack
 
       if not err.HasLocation():  # Last resort!
-        err.span_id = self.mem.CurrentSpanId()
+        err.location = loc.Span(self.mem.CurrentSpanId())
 
       if is_errexit:
         if self.exec_opts.verbose_errexit():
-          self.errfmt.PrintErrExit(err, posix.getpid())
+          self.errfmt.PrintErrExit(cast(error.ErrExit, err), posix.getpid())
       else:
         self.errfmt.PrettyPrintError(err, prefix='fatal: ')
 
@@ -1755,15 +1749,14 @@ class CommandEvaluator(object):
 
               if not arg_str.startswith(':'):
                 # TODO: Point to the exact argument
-                e_die('Invalid argument %r.  Expected a name starting with :',
-                      arg_str)
+                e_die('Invalid argument %r.  Expected a name starting with :' % arg_str)
               arg_str = arg_str[1:]
 
             val = value.Str(arg_str)  # type: value_t
           else:
             val = proc.defaults[i]
             if val is None:
-              e_die("No value provided for param %r", p.name.val)
+              e_die("No value provided for param %r" % p.name.val)
 
           if is_out_param:
             flags = state.SetNameref 
@@ -1790,15 +1783,15 @@ class CommandEvaluator(object):
       # Here doc causes a pipe and Process(SubProgramThunk).
       try:
         status = self._Execute(proc.body)
-      except _ControlFlow as e:
+      except vm.ControlFlow as e:
         if e.IsReturn():
           status = e.StatusCode()
         else:
           # break/continue used in the wrong place.
-          e_die('Unexpected %r (in function call)', e.token.val, token=e.token)
+          e_die('Unexpected %r (in function call)' % e.token.val, e.token)
       except error.FatalRuntime as e:
         # Dump the stack before unwinding it
-        self.dumper.MaybeCollect(self, e)
+        self.dumper.MaybeRecord(self, e)
         raise
 
     return status
@@ -1819,12 +1812,12 @@ class CommandEvaluator(object):
     namespace_ = None  # type: Dict[str, cell]
     try:
       self._Execute(block)  # can raise FatalRuntimeError, etc.
-    except _ControlFlow as e:  # A block is more like a function.
+    except vm.ControlFlow as e:  # A block is more like a function.
       # return in a block
       if e.IsReturn():
         status = e.StatusCode()
       else:
-        e_die('Unexpected control flow in block', token=e.token)
+        e_die('Unexpected control flow in block', e.token)
 
     namespace_ = self.mem.TopNamespace()
 
@@ -1849,7 +1842,7 @@ class CommandEvaluator(object):
     except error.FatalRuntime as e:
       self.errfmt.PrettyPrintError(e)
       status = e.ExitStatus()
-    except _ControlFlow as e:
+    except vm.ControlFlow as e:
       # shouldn't be able to exit the shell from a completion hook!
       # TODO: Avoid overwriting the prompt!
       self.errfmt.Print_('Attempted to exit from completion hook.',

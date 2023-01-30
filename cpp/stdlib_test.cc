@@ -22,6 +22,10 @@ TEST posix_test() {
   ASSERT(fds.at0() > 0);
   ASSERT(fds.at1() > 0);
 
+  ASSERT_EQ(false, posix::isatty(fds.at0()));
+
+  posix::close(fds.at0());
+
   Str* message = posix::strerror(EBADF);
   log("strerror");
   print(message);
@@ -112,6 +116,15 @@ TEST listdir_test() {
   PASS();
 }
 
+TEST for_test_coverage() {
+  time_::sleep(0);
+
+  // I guess this has side effects
+  time_::tzset();
+
+  PASS();
+}
+
 GREATEST_MAIN_DEFS();
 
 int main(int argc, char** argv) {
@@ -125,6 +138,8 @@ int main(int argc, char** argv) {
   RUN_TEST(time_test);
   RUN_TEST(mtime_demo);
   RUN_TEST(listdir_test);
+
+  RUN_TEST(for_test_coverage);
 
   gHeap.CleanProcessExit();
 

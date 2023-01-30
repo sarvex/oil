@@ -5,7 +5,6 @@ tools_main.py
 from __future__ import print_function
 
 import posix_ as posix
-import sys
 
 from _devbuild.gen.option_asdl import option_i
 from _devbuild.gen.syntax_asdl import source
@@ -15,15 +14,16 @@ from core import error
 from core import main_loop
 from core import optview
 from core import pyutil
-from core.pyutil import stderr_line
 from core import state
 from core import ui
 from frontend import reader
 from frontend import parse_lib
+from mycpp import mylib
+from mycpp.mylib import print_stderr
 from tools import deps
 from tools import osh2oil
 
-from typing import List
+from typing import List, Dict
 
 # TODO: Hook up to completion.
 SUBCOMMANDS = [
@@ -83,16 +83,18 @@ def OshCommandMain(argv):
     arena.PushSource(source.MainFile(script_name))
   except IndexError:
     arena.PushSource(source.Stdin(''))
-    f = sys.stdin
+    f = mylib.Stdin()
   else:
     try:
+      # TODO: fd_state.Open() or something similar
       f = open(script_name)
     except IOError as e:
-      stderr_line("oshc: Couldn't open %r: %s", script_name,
-                  posix.strerror(e.errno))
+      print_stderr("oshc: Couldn't open %r: %s" %
+                   (script_name, posix.strerror(e.errno)))
       return 2
 
-  aliases = {}  # Dummy value; not respecting aliases!
+  # Dummy value; not respecting aliases!
+  aliases = {}  # type: Dict[str, str]
 
   loader = pyutil.GetResourceLoader()
   oil_grammar = pyutil.LoadOilGrammar(loader)
@@ -145,7 +147,8 @@ def OshCommandMain(argv):
     raise NotImplementedError(action)
 
   elif action == 'deps':
-    deps.Deps(node)
+    if mylib.PYTHON:
+      deps.Deps(node)
 
   elif action == 'undefined-vars':  # could be environment variables
     raise NotImplementedError()

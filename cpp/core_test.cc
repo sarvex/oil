@@ -7,24 +7,28 @@
 #include <sys/utsname.h>  // uname
 #include <unistd.h>       // getpid(), getuid(), environ
 
-#include "cpp/core_error.h"
 #include "cpp/stdlib.h"         // posix::getcwd
 #include "mycpp/gc_builtins.h"  // IOError_OSError
 #include "vendor/greatest.h"
 
+TEST for_test_coverage() {
+  pyos::FlushStdout();
+  auto r = pyutil::GetResourceLoader();
+  (void)r;
+
+  PASS();
+}
+
 TEST exceptions_test() {
   bool caught = false;
   try {
-    throw Alloc<error::Usage>(StrFromC("msg"), 42);
-  } catch (error::Usage* e) {
+    throw Alloc<pyos::ReadError>(0);
+  } catch (pyos::ReadError* e) {
     log("e %p", e);
     caught = true;
   }
 
   ASSERT(caught);
-
-  auto read_error = Alloc<pyos::ReadError>(0);
-  (void)read_error;
 
   PASS();
 }
@@ -131,6 +135,14 @@ TEST pyos_read_test() {
 }
 
 TEST pyos_test() {
+  Tuple3<double, double, double> t = pyos::Time();
+  ASSERT(t.at0() > 0.0);
+  ASSERT(t.at1() >= 0.0);
+  ASSERT(t.at2() >= 0.0);
+
+  Tuple2<int, int> result = pyos::WaitPid();
+  ASSERT_EQ(-1, result.at0());  // no children to wait on
+
   // This test isn't hermetic but it should work in most places, including in a
   // container
 
@@ -149,6 +161,9 @@ TEST pyos_test() {
 }
 
 TEST pyutil_test() {
+  ASSERT_EQ(true, pyutil::IsValidCharEscape(StrFromC("#")));
+  ASSERT_EQ(false, pyutil::IsValidCharEscape(StrFromC("a")));
+
   // OK this seems to work
   Str* escaped = pyutil::BackslashEscape(StrFromC("'foo bar'"), StrFromC(" '"));
   ASSERT(str_equals(escaped, StrFromC("\\'foo\\ bar\\'")));
@@ -267,9 +282,9 @@ TEST dir_cache_key_test() {
   struct stat st;
   ASSERT(::stat("/", &st) == 0);
 
-  Tuple2<Str*, int> key = pyos::MakeDirCacheKey(StrFromC("/"));
-  ASSERT(str_equals(key.at0(), StrFromC("/")));
-  ASSERT(key.at1() == st.st_mtime);
+  Tuple2<Str*, int>* key = pyos::MakeDirCacheKey(StrFromC("/"));
+  ASSERT(str_equals(key->at0(), StrFromC("/")));
+  ASSERT(key->at1() == st.st_mtime);
 
   int ec = -1;
   try {
@@ -289,6 +304,7 @@ int main(int argc, char** argv) {
 
   GREATEST_MAIN_BEGIN();
 
+  RUN_TEST(for_test_coverage);
   RUN_TEST(exceptions_test);
   RUN_TEST(environ_test);
   RUN_TEST(user_home_dir_test);

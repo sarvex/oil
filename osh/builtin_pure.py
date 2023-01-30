@@ -21,14 +21,13 @@ from _devbuild.gen.runtime_asdl import (
     value, value_e, value__Str, value__MaybeStrArray, value__AssocArray,
     value__Obj
 )
-from _devbuild.gen.syntax_asdl import Token, command_e, BraceGroup
+from _devbuild.gen.syntax_asdl import command_e, BraceGroup
 from _devbuild.gen.types_asdl import opt_group_i
 
 from asdl import format as fmt
 from asdl import runtime
 from core import error
 from core.pyerror import e_usage, e_die
-from core.pyutil import stderr_line
 from core import optview
 from core import state
 from core.pyerror import log
@@ -37,11 +36,12 @@ from core import vm
 from frontend import args
 from frontend import consts
 from frontend import flag_spec
+from frontend import lexer
 from frontend import match
 from frontend import typed_args
 from qsn_ import qsn
 from mycpp import mylib
-from mycpp.mylib import iteritems, tagswitch, NewDict
+from mycpp.mylib import iteritems, tagswitch, NewDict, print_stderr
 from osh import word_compile
 
 from typing import List, Dict, Tuple, Optional, Any, cast, TYPE_CHECKING
@@ -293,7 +293,7 @@ class Hash(vm._Builtin):
       for cmd in rest:  # enter in cache
         full_path = self.search_path.CachedLookup(cmd)
         if full_path is None:
-          stderr_line('hash: %r not found', cmd)
+          print_stderr('hash: %r not found' % cmd)
           status = 1
     else:  # print cache
       commands = self.search_path.CachedCommands()
@@ -416,7 +416,7 @@ def _GetOpts(spec, argv, my_state, errfmt):
         # TODO: Add location info
         errfmt.Print_('getopts: option %r requires an argument.' % current)
         tmp = [qsn.maybe_shell_encode(a) for a in argv]
-        stderr_line('(getopts argv: %s)', ' '.join(tmp))
+        print_stderr('(getopts argv: %s)' % ' '.join(tmp))
 
         # Hm doesn't cause status 1?
         return 0, '?'
@@ -508,7 +508,7 @@ class Echo(vm._Builtin):
     argv = arg_r.Rest()
 
     backslash_c = False  # \c terminates input
-    arg0_spid = cmd_val.arg_spids[0]
+    #arg0_spid = cmd_val.arg_spids[0]
 
     if arg.e:
       new_argv = []  # type: List[str]
@@ -520,7 +520,9 @@ class Echo(vm._Builtin):
           if id_ == Id.Eol_Tok:  # Note: This is really a NUL terminator
             break
 
-          tok = Token(id_, arg0_spid, value)
+          # Note: DummyToken is OK because EvalCStringToken() doesn't have any
+          # syntax errors.
+          tok = lexer.DummyToken(id_, value)
           p = word_compile.EvalCStringToken(tok)
 
           # Unusual behavior: '\c' prints what is there and aborts processing!
@@ -809,18 +811,17 @@ if mylib.PYTHON:
 
           if brace_group:
             # BraceGroup has spid for {
-            line_span = self.arena.GetLineSpan(brace_group.spids[0])
-            src = self.arena.GetLineSource(line_span.line_id)
-            line_num = self.arena.GetLineNumber(line_span.line_id)
+            line_id =brace_group.left.line_id
+            src = self.arena.GetLineSource(line_id)
+            line_num = self.arena.GetLineNumber(line_id)
 
             # for the user to pass back to --location-str
-            result['location_str'] = ui.GetLineSourceString(self.arena,
-                                                            line_span.line_id)
+            result['location_str'] = ui.GetLineSourceString(self.arena, line_id)
             result['location_start_line'] = line_num
 
             # Between { and }
-            code_str = self.arena.GetCodeString(brace_group.spids[0],
-                                                brace_group.spids[1])
+            code_str = self.arena.GetCodeString(brace_group.left.span_id,
+                                                brace_group.right.span_id)
             result['code_str'] = code_str
           else:
             result['error'] = "Can't find code if block arg isn't literal like { }"
@@ -867,7 +868,7 @@ if mylib.PYTHON:
                 val = cast(value__Obj, UP_val)
                 obj = val.obj
               else:
-                e_die("Can't serialize value of type %d", val.tag_())
+                e_die("Can't serialize value of type %d" % val.tag_())
             attrs[name] = obj
 
           result['attrs'] = attrs

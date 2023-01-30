@@ -10,7 +10,7 @@ from typing import overload, Union, Optional, Any, Dict
 
 from mypy.visitor import ExpressionVisitor, StatementVisitor
 from mypy.types import (
-    Type, AnyType, NoneTyp, TupleType, Instance, Overloaded, CallableType,
+    Type, AnyType, NoneTyp, TupleType, Instance, NoneType, Overloaded, CallableType,
     UnionType, UninhabitedType, PartialType, TypeAliasType)
 from mypy.nodes import (
     Expression, Statement, Block, NameExpr, IndexExpr, MemberExpr, TupleExpr,
@@ -37,6 +37,8 @@ def _SkipAssignment(var_name):
 
 
 def _GetCTypeForCast(type_expr):
+  """ MyPy cast() """
+
   if isinstance(type_expr, MemberExpr):
     subtype_name = '%s::%s' % (type_expr.expr.name, type_expr.name)
   elif isinstance(type_expr, IndexExpr):
@@ -56,9 +58,15 @@ def _GetCTypeForCast(type_expr):
   return subtype_name
 
 
-def _GetCastKind(module_path, subtype_name):
+def _GetCastKind(module_path, cast_to_type):
+  """Translate MyPy cast to C++ cast.
+  
+  Prefer static_cast, but sometimes we need reinterpret_cast.
+  """
+
   cast_kind = 'static_cast'
-  # Hack for the CastDummy in expr_to_ast.py
+
+  # Hack for Id.Expr_CastedDummy in expr_to_ast.py
   if 'expr_to_ast.py' in module_path:
     for name in (
         'sh_array_literal', 'command_sub', 'braced_var_sub',
@@ -66,17 +74,25 @@ def _GetCastKind(module_path, subtype_name):
         # Another kind of hack, not because of CastDummy
         'place_expr_t',
         ):
-      if name in subtype_name:
+      if name in cast_to_type:
         cast_kind = 'reinterpret_cast'
         break
 
-  if 'process.py' in module_path and 'mylib::Writer' in subtype_name:
-      cast_kind = 'reinterpret_cast'
+  # The other side of Id.Expr_CastedDummy
+  if 'expr_parse.py' in module_path:
+    for name in ('Token',):
+      if name in cast_to_type:
+        cast_kind = 'reinterpret_cast'
+        break
+
+  if 'process.py' in module_path and 'mylib::Writer' in cast_to_type:
+    cast_kind = 'reinterpret_cast'
 
   return cast_kind
 
 
 def _GetContainsFunc(t):
+  """ x in y """
   contains_func = None
 
   if isinstance(t, Instance):
@@ -142,7 +158,8 @@ def CTypeIsManaged(c_type):
   return c_type.endswith('*')
 
 
-def get_c_type(t, param=False, local=False):
+def GetCType(t, param=False, local=False):
+  """Recursively translate MyPy type to C++ type."""
   is_pointer = False
 
   if isinstance(t, NoneTyp):  # e.g. a function that doesn't return anything
@@ -181,14 +198,14 @@ def get_c_type(t, param=False, local=False):
     elif type_name == 'builtins.list':
       assert len(t.args) == 1, t.args
       type_param = t.args[0]
-      inner_c_type = get_c_type(type_param)
+      inner_c_type = GetCType(type_param)
       c_type = 'List<%s>' % inner_c_type
       is_pointer = True
 
     elif type_name == 'builtins.dict':
       params = []
       for type_param in t.args:
-        params.append(get_c_type(type_param))
+        params.append(GetCType(type_param))
       c_type = 'Dict<%s>' % ', '.join(params)
       is_pointer = True
 
@@ -199,7 +216,7 @@ def get_c_type(t, param=False, local=False):
     elif type_name == 'typing.Iterator':
       assert len(t.args) == 1, t.args
       type_param = t.args[0]
-      inner_c_type = get_c_type(type_param)
+      inner_c_type = GetCType(type_param)
       c_type = 'ListIter<%s>' % inner_c_type
 
     else:
@@ -227,7 +244,7 @@ def get_c_type(t, param=False, local=False):
   elif isinstance(t, TupleType):
     inner_c_types = []
     for inner_type in t.items:
-      inner_c_types.append(get_c_type(inner_type))
+      inner_c_types.append(GetCType(inner_type))
 
     c_type = 'Tuple%d<%s>' % (len(t.items), ', '.join(inner_c_types))
     is_pointer = True
@@ -240,15 +257,15 @@ def get_c_type(t, param=False, local=False):
     if not isinstance(t.items[1], NoneTyp):
       raise NotImplementedError('Expected Optional, got %s' % t)
 
-    c_type = get_c_type(t.items[0])
+    c_type = GetCType(t.items[0])
 
   elif isinstance(t, CallableType):
     # Function types are expanded
-    # Callable[[Parser, Token, int], arith_expr_t] =>
-    # arith_expr_t* (*f)(Parser*, Token*, int) nud;
+    #    Callable[[Parser, Token, int], arith_expr_t]
+    # -> arith_expr_t* (*f)(Parser*, Token*, int) nud;
 
-    ret_type = get_c_type(t.ret_type)
-    arg_types = [get_c_type(typ) for typ in t.arg_types]
+    ret_type = GetCType(t.ret_type)
+    arg_types = [GetCType(typ) for typ in t.arg_types]
     c_type = '%s (*f)(%s)' % (ret_type, ', '.join(arg_types))
 
   elif isinstance(t, TypeAliasType):
@@ -260,7 +277,7 @@ def get_c_type(t, param=False, local=False):
       log('%s', dir(t.alias))
       log('%s', t.alias.target)
       log('***')
-    return get_c_type(t.alias.target)
+    return GetCType(t.alias.target)
 
   else:
     raise NotImplementedError('MyPy type: %s %s' % (type(t), t))
@@ -274,13 +291,13 @@ def get_c_type(t, param=False, local=False):
   return c_type
 
 
-def get_c_return_type(t) -> Tuple[str, bool, Optional[str]]:
+def GetCReturnType(t) -> Tuple[str, bool, Optional[str]]:
   """
   Returns a C string, whether the tuple-by-value optimization was applied, and
   the C type of an extra output param if the function is a generator.
   """
 
-  c_ret_type = get_c_type(t)
+  c_ret_type = GetCType(t)
 
   # Optimization: Return tupels BY VALUE
   if isinstance(t, TupleType):
@@ -288,7 +305,7 @@ def get_c_return_type(t) -> Tuple[str, bool, Optional[str]]:
     return c_ret_type[:-1], True, None
   elif c_ret_type.startswith('ListIter<'):
     assert len(t.args) == 1, t.args
-    inner_c_type = get_c_type(t.args[0])
+    inner_c_type = GetCType(t.args[0])
     return 'void', False, 'List<%s>*' % inner_c_type
   else:
     return c_ret_type, False, None
@@ -340,26 +357,40 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
       # self.foo = 1.  Then we write C++ class member declarations at the end
       # of the class.
       # This is all in the 'decl' phase.
-      self.member_vars = {}  # type: Dict[str, Type]
+      self.member_vars: Dict[str, Type] = {}
 
       self.current_class_name = None  # for prototypes
       self.current_method_name = None
 
-      self.imported_names = set()  # For module::Foo() vs. self.foo
+      self.imported_names = set()  # MemberExpr -> module::Foo() or self->foo
+
+      # So we can report multiple at once
+      # module path, line number, message
+      self.errors_keep_going: List[Tuple[str, int, str]] = []
+
+      self.writing_default_arg = False
 
     def log(self, msg, *args):
       ind_str = self.indent * '  '
       log(ind_str + msg, *args)
 
     def write(self, msg, *args):
-      if self.decl or self.forward_decl:
+      """Write only in definitions."""
+
+      if self.forward_decl:
         return
+
+      if self.decl and not self.writing_default_arg:
+        return
+
       if args:
         msg = msg % args
       self.f.write(msg)
 
     # Write respecting indent
     def write_ind(self, msg, *args):
+      """Write indented string, only in definitions."""
+
       if self.decl or self.forward_decl:
         return
       ind_str = self.indent * '  '
@@ -367,17 +398,17 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         msg = msg % args
       self.f.write(ind_str + msg)
 
-    # A little hack to reuse this pass for declarations too
     def decl_write(self, msg, *args):
-      # TODO:
-      # self.header_f ?
-      # Just one file for all exported?
+      """Write unconditionally, e.g. in decl mode
 
+      A little hack to reuse this pass for declarations too
+      """
       if args:
         msg = msg % args
       self.f.write(msg)
 
     def decl_write_ind(self, msg, *args):
+      """Write indented string, unconditionally."""
       ind_str = self.indent * '  '
       if args:
         msg = msg % args
@@ -414,6 +445,10 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
                 except UnsupportedException:
                     pass
                 return None
+
+    def report_error(self, node: Union[Statement, Expression], msg: str):
+      err = (self.module_path, node.line, msg)
+      self.errors_keep_going.append(err)
 
     # Not in superclasses:
 
@@ -469,6 +504,9 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             '}  // %s namespace %s\n', comment, mod_parts[-1])
         self.decl_write('\n')
 
+        for path, line_num, msg in self.errors_keep_going:
+          self.log('%s:%s %s', path, line_num, msg)
+
 
     # NOTE: Copied ExpressionVisitor and StatementVisitor nodes below!
 
@@ -520,7 +558,10 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
     def visit_member_expr(self, o: 'mypy.nodes.MemberExpr') -> T:
         t = self.types[o]
         if o.expr:  
-          #log('member o = %s', o)
+          if self.writing_default_arg:
+            # debug deps in the decl phase
+            # self.log('member o = %s, o.expr = %s', o, o.expr)
+            pass
 
           # This is an approximate hack that assumes that locals don't shadow
           # imported names.  Might be a problem with names like 'word'?
@@ -538,8 +579,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
           self.write(op)
 
         if o.name == 'errno':
-          # Avoid conflict with errno macro
-          # e->errno turns into e->errno_
+          # e->errno -> e->errno_ to avoid conflict with C macro
           self.write('errno_')
         else:
           self.write('%s', o.name)
@@ -636,91 +676,28 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
           self.write(')')
           return
 
-        # Translate printf-style vargs for some functions, e.g.
+        # Translate printf-style varargs:
         #
-        # p_die('foo %s', x, token=t)
+        # log('foo %s', x)
         #   =>
-        # p_die(fmt1(x), t)
-        #
-        # And then we need 3 or 4 version of p_die()?  For the rest of the
-        # tokens.
-
-        # Others:
-        # - debug_f.log()?
-        # Maybe I should rename them all printf()
-        # or fprintf()?  Except p_die() has extra args
-
-        if o.callee.name == 'log' or o.callee.name == 'stderr_line':
+        # log(StrFormat('foo %s', x))
+        if o.callee.name == 'log':
           args = o.args
           if len(args) == 1:  # log(CONST)
-            self.write('println_stderr(')
+            self.write('mylib::print_stderr(')
             self.accept(args[0])
             self.write(')')
             return
 
-          rest = args[1:]
           quoted_fmt = PythonStringLiteral(args[0].value)
 
-          # DEFINITION PASS: Write the call
-          self.write('println_stderr(StrFormat(%s, ' % quoted_fmt)
-          for i, arg in enumerate(rest):
+          # DEFINITION PASS
+          self.write('mylib::print_stderr(StrFormat(%s, ' % quoted_fmt)
+          for i, arg in enumerate(args[1:]):
             if i != 0:
               self.write(', ')
             self.accept(arg)
           self.write('))')
-          return
-
-        # Translate
-        # e_die("hi %d", x, span_id=42) => e_die(StrFormat("hi %d", x), 42)
-        # These functions are like log(), but they can have location info.
-        #
-        # TODO: probably remove this case -- they can all use the binary %
-        # operator.  This may simplify cpp/core_error.h
-
-        if o.callee.name in ('p_die', 'e_die', 'e_strict'):
-          args = o.args
-          if len(args) == 1:  # log(CONST)
-            self.write('%s(' % o.callee.name)
-            self.accept(args[0])
-            self.write(')')
-            return
-
-          if len(args) > 2:
-            #raise AssertionError('%s got %d args' % (o.callee.name, len(args)))
-            pass
-
-            #self.log('%s got %d args', o.callee.name, len(args))
-            # STATS:
-            # - 119 calls with 3 args
-            # - 14 calls with 4 args
-            #
-            # 65 e_die
-            # 56 p_die
-            # 12 e_strict
-
-          has_keyword_arg = o.arg_names[-1] is not None
-          if has_keyword_arg:  # e.g. span_id=42
-            rest = args[1:-1]
-          else:
-            rest = args[1:]
-
-          self.write('%s(StrFormat(' % o.callee.name)
-          if isinstance(args[0], StrExpr):
-            self.write(PythonStringLiteral(args[0].value))
-          else:
-            self.accept(args[0])
-
-          for i, arg in enumerate(rest):
-            self.write(', ')
-            self.accept(arg)
-
-          if has_keyword_arg:
-            self.write('), ')
-            self.accept(args[-1])
-          else:
-            self.write(')')
-
-          self.write(')')
           return
 
         callee_name = o.callee.name
@@ -760,10 +737,10 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         left_type = self.types[o.left]
         right_type = self.types[o.right]
 
-        # NOTE: Need get_c_type to handle Optional[Str*] in ASDL schemas.
+        # NOTE: Need GetCType to handle Optional[Str*] in ASDL schemas.
         # Could tighten it up later.
-        left_ctype = get_c_type(left_type)
-        right_ctype = get_c_type(right_type)
+        left_ctype = GetCType(left_type)
+        right_ctype = GetCType(right_type)
 
         c_op = o.op
         if left_ctype == right_ctype == 'int' and c_op == '//':
@@ -1014,10 +991,10 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
     def visit_list_expr(self, o: 'mypy.nodes.ListExpr') -> T:
         list_type = self.types[o]
         #self.log('**** list_type = %s', list_type)
-        c_type = get_c_type(list_type)
+        c_type = GetCType(list_type)
 
         item_type = list_type.args[0]  # int for List[int]
-        item_c_type = get_c_type(item_type)
+        item_c_type = GetCType(item_type)
 
         assert c_type.endswith('*'), c_type
         c_type = c_type[:-1]  # HACK TO CLEAN UP
@@ -1033,12 +1010,12 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
     def _WriteDictElements(self, o, key_type, val_type):
         # Ran into a limit of C++ type inference.  Somehow you need
         # std::initializer_list{} here, not just {}
-        self.write('std::initializer_list<%s>{' % get_c_type(key_type))
+        self.write('std::initializer_list<%s>{' % GetCType(key_type))
         for i, item in enumerate(o.items):
           pass
         self.write('}, ')
 
-        self.write('std::initializer_list<%s>{' % get_c_type(val_type))
+        self.write('std::initializer_list<%s>{' % GetCType(val_type))
         # TODO: values
         self.write('}')
 
@@ -1047,7 +1024,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         key_type = dict_type.args[0]
         val_type = dict_type.args[1]
 
-        c_type = get_c_type(dict_type)
+        c_type = GetCType(dict_type)
         assert c_type.endswith('*'), c_type
         c_type = c_type[:-1]  # HACK TO CLEAN UP
 
@@ -1058,7 +1035,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
 
     def visit_tuple_expr(self, o: 'mypy.nodes.TupleExpr') -> T:
         tuple_type = self.types[o]
-        c_type = get_c_type(tuple_type)
+        c_type = GetCType(tuple_type)
         assert c_type.endswith('*'), c_type
         c_type = c_type[:-1]  # HACK TO CLEAN UP
 
@@ -1123,8 +1100,9 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         cond_type = self.types[o.cond]
 
         if not _CheckConditionType(cond_type):
-          raise AssertionError(
-              "Can't use str, list, or dict in boolean context")
+          self.report_error(o,
+              "Use len(mystr), len(mylist) or len(mydict) in conditional expr")
+          return
 
         # 0 if b else 1 -> b ? 0 : 1
         self.accept(o.cond)
@@ -1172,7 +1150,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
           if _SkipAssignment(lval_item.name):
             continue
 
-          item_c_type = get_c_type(item_type)
+          item_c_type = GetCType(item_type)
           # declare it at the top of the function
           if self.decl:
             self.local_var_list.append((lval_item.name, item_c_type))
@@ -1190,7 +1168,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         # Declare constant strings.  They have to be at the top level.
         if self.decl and self.indent == 0 and len(o.lvalues) == 1:
           lval = o.lvalues[0]
-          c_type = get_c_type(self.types[lval])
+          c_type = GetCType(self.types[lval])
           if not _SkipAssignment(lval.name):
             self.decl_write('extern %s %s;\n', c_type, lval.name)
 
@@ -1199,29 +1177,23 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         assert len(o.lvalues) == 1, o.lvalues
         lval = o.lvalues[0]
 
-        # Special case for global constants.  L = [1, 2] or D = {}
-        #
-        # We avoid Alloc<T>, since that can't be done until main().
-        #
-        # It would be nice to make these completely constexpr, e.g.
-        # initializing Slab<T> with the right layout from initializer_list, but
-        # it isn't easy.  Would we need a constexpr hash?
-        #
-        # Limitation: This doesn't handle a = f([1, 2]), but we don't use that
-        # in Oil.
+        # GLOBAL CONSTANTS
+        # Avoid Alloc<T>, since that can't be done until main().
 
         if self.indent == 0:
           assert isinstance(lval, NameExpr), lval
           if _SkipAssignment(lval.name):
             return
 
-          #self.log('    GLOBAL List/Dict: %s', lval.name)
+          #self.log('    GLOBAL: %s', lval.name)
 
           lval_type = self.types[lval]
 
+          # Global
+          #   L = [1, 2]  # type: List
           if isinstance(o.rvalue, ListExpr):
             item_type = lval_type.args[0]
-            item_c_type = get_c_type(item_type)
+            item_c_type = GetCType(item_type)
 
             # Then a pointer to it
             self.write('GLOBAL_LIST(%s, %d, %s, ',
@@ -1234,16 +1206,15 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             self.write(');\n')
             return
 
-          # d = {} at the TOP LEVEL
-          # TODO: Change this to
-          # - GLOBAL_DICT(name, int, {42, 0}, Str, {str1, str2})
-          # So it has HeapTag::Global
-
+          # Global
+          #   D = {}  # type: Dict
+          # TODO: Use GLOBAL_DICT(name, int, {42, 0}, Str, {str1, str2})
+          # to get HeapTag::Global
           if isinstance(o.rvalue, DictExpr):
             key_type, val_type = lval_type.args
 
-            key_c_type = get_c_type(key_type)
-            val_c_type = get_c_type(val_type)
+            key_c_type = GetCType(key_type)
+            val_c_type = GetCType(val_type)
 
             temp_name = 'gdict%d' % self.unique_id
             self.unique_id += 1
@@ -1258,9 +1229,8 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
                 lval.name, temp_name)
             return
 
-          # TODO: Change this to
-          # - GLOBAL_INSTANCE(name, Token, ...)
-          # for HeapTag::Global
+          # TODO: Change to GLOBAL_ASDL_INSTANCE(name, Token, ...) to get HeapTag::Global
+          # Problem: sometimes the constructor calls NewList() or NewDict, which is illegal.
           if isinstance(o.rvalue, CallExpr):
             call_expr = o.rvalue
             if self._IsInstantiation(call_expr):
@@ -1275,7 +1245,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
               if call_expr.args:
                 self._WriteArgList(call_expr)
               self.write(';\n')
-              self.write('%s %s = &%s;', get_c_type(lval_type), lval.name,
+              self.write('%s %s = &%s;', GetCType(lval_type), lval.name,
                   temp_name)
               self.write('\n')
               return
@@ -1293,8 +1263,8 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
 
             key_type, val_type = lval_type.args
 
-            key_c_type = get_c_type(key_type)
-            val_c_type = get_c_type(val_type)
+            key_c_type = GetCType(key_type)
+            val_c_type = GetCType(val_type)
 
             self.write_ind('auto* %s = NewDict<%s, %s>();\n',
                            lval.name, key_c_type, val_c_type)
@@ -1336,9 +1306,9 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             # to accumulate the results in one big batch, then wrap it in
             # ListIter<T>.
             assert len(rval_type.args) == 1, rval_type.args
-            c_type = get_c_type(rval_type)
+            c_type = GetCType(rval_type)
             type_param = rval_type.args[0]
-            inner_c_type = get_c_type(type_param)
+            inner_c_type = GetCType(type_param)
             iter_buf = ('_iter_buf_%s' % lval.name, 'List<%s>*' % inner_c_type)
             self.write_ind('List<%s> %s;\n', inner_c_type, iter_buf[0])
             self.current_stmt_node = o
@@ -1355,8 +1325,8 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             return
 
           lval_type = self.types[lval]
-          #c_type = get_c_type(lval_type, local=self.indent != 0)
-          c_type = get_c_type(lval_type)
+          #c_type = GetCType(lval_type, local=self.indent != 0)
+          c_type = GetCType(lval_type)
 
           # for "hoisting" to the top of the function
           if self.current_func_node:
@@ -1400,7 +1370,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             #self.log('  iterating over type %s', over_type)
 
             if over_type.type.fullname == 'builtins.list':
-              c_type = get_c_type(over_type)
+              c_type = GetCType(over_type)
               assert c_type.endswith('*'), c_type
               c_iter_type = c_type.replace('List', 'ListIter', 1)[:-1]  # remove *
             else:
@@ -1415,13 +1385,13 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             item_type = seq_type.args[0]  # get 'int' from 'List<int>'
 
             if isinstance(item_type, Instance):
-              self.write_ind('  %s ', get_c_type(item_type))
+              self.write_ind('  %s ', GetCType(item_type))
               # TODO(StackRoots): for ch in 'abc'
               self.accept(index_expr)
               self.write(' = it.Value();\n')
             
             elif isinstance(item_type, TupleType):  # for x, y in pairs
-              c_item_type = get_c_type(item_type)
+              c_item_type = GetCType(item_type)
 
               if isinstance(index_expr, TupleExpr):
                 temp_name = 'tup%d' % self.unique_id
@@ -1506,7 +1476,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
           if isinstance(rvalue_type, TypeAliasType):
             rvalue_type = rvalue_type.alias.target
 
-          c_type = get_c_type(rvalue_type)
+          c_type = GetCType(rvalue_type)
 
           is_return = isinstance(o.rvalue, CallExpr) and o.rvalue.callee.name != "next"
           if is_return:
@@ -1646,7 +1616,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         yield_acc = None
 
         if over_type.type.fullname == 'builtins.list':
-          c_type = get_c_type(over_type)
+          c_type = GetCType(over_type)
           assert c_type.endswith('*'), c_type
           c_iter_type = c_type.replace('List', 'ListIter', 1)[:-1]  # remove *
 
@@ -1656,7 +1626,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
 
         elif over_type.type.fullname == 'builtins.dict':
           # Iterator
-          c_type = get_c_type(over_type)
+          c_type = GetCType(over_type)
           assert c_type.endswith('*'), c_type
           c_iter_type = c_type.replace('Dict', 'DictIter', 1)[:-1]  # remove *
 
@@ -1671,9 +1641,9 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         elif over_type.type.fullname == 'typing.Iterator':
           # We're iterating over a generator. Create a temporary List<T> on the stack
           # to accumulate the results in one big batch.
-          c_iter_type = get_c_type(over_type)
+          c_iter_type = GetCType(over_type)
           assert len(over_type.args) == 1, over_type.args
-          inner_c_type = get_c_type(over_type.args[0])
+          inner_c_type = GetCType(over_type.args[0])
           yield_acc = ('_for_yield_acc%d' % self.unique_id, 'List<%s>*' % inner_c_type)
           self.unique_id += 1
           self.write_ind('List<%s> %s;\n', inner_c_type, yield_acc[0])
@@ -1707,7 +1677,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         # for i, x in enumerate(pairs): ...
 
         if isinstance(item_type, Instance) or index0_name:
-          c_item_type = get_c_type(item_type)
+          c_item_type = GetCType(item_type)
           self.write_ind('  %s ', c_item_type)
           self.accept(index_expr)
           if over_dict:
@@ -1728,8 +1698,8 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             assert len(index_items) == 2, index_items
             assert len(item_type.items) == 2, item_type.items
 
-            key_type = get_c_type(item_type.items[0])
-            val_type = get_c_type(item_type.items[1])
+            key_type = GetCType(item_type.items[0])
+            val_type = GetCType(item_type.items[1])
 
             # TODO(StackRoots): k, v
             self.write_ind('  %s %s = it.Key();\n', key_type, index_items[0].name)
@@ -1744,7 +1714,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             #   log("%d %s", i, s);
             # }
 
-            c_item_type = get_c_type(item_type)
+            c_item_type = GetCType(item_type)
 
             if isinstance(o.index, TupleExpr):
               # TODO(StackRoots)
@@ -1906,12 +1876,15 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
 
           self.write_ind('')
           self.accept(expr.callee)
-          self.write(' ctx(')
+
+          # FIX: Use braced initialization to avoid most-vexing parse when
+          # there are 0 args!
+          self.write(' ctx{')
           for i, arg in enumerate(expr.args):
             if i != 0:
               self.write(', ')
             self.accept(arg)
-          self.write(');\n\n')
+          self.write('};\n\n')
 
           #self.write_ind('')
           self._write_body(o.body.body)
@@ -1940,8 +1913,52 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
 
           self.write(';\n')
 
-    def _WriteFuncParams(self, arg_types, arguments, update_locals=False):
-        """Write params and optionally mutate self.local_vars."""
+    def _WriteFuncParams(self, arg_types, arguments,
+        update_locals=False, write_defaults=False):
+        """Write params for function/method signatures.
+
+        Optionally mutate self.local_vars, and optionally write default arguments.
+        """
+        if write_defaults:
+          # Check if default args are valid first
+
+          num_defaults = 0
+          for arg in arguments:
+            if arg.initializer:
+              t = self.types[arg.initializer]
+
+              valid = False
+              if isinstance(t, NoneType):
+                valid = True
+              if isinstance(t, Instance):
+                # Allowing strings since they're immutable, e.g. prefix='' seems
+                # OK
+                if t.type.fullname in ('builtins.bool', 'builtins.int', 'builtins.float', 'builtins.str'):
+                  valid = True
+                if t.type.fullname.endswith('_t'):  # ASDL lex_mode_t, scope_t, ...
+                  valid = True
+
+              if not valid:
+                self.report_error(arg,
+                    'Invalid default arg %r of type %s (not None, bool, int, float)' %
+                    (arg.initializer, t))
+                return
+
+              num_defaults += 1
+
+          if num_defaults > 1:
+            name = '[TODO]'
+            #if class_name:
+            #  name = '%s::%s' % (class_name, func_name)
+            #else:
+            #  name = func_name
+
+            # Report on first arg
+            self.report_error(arg,
+                '%s has %d default arguments.  Only 1 is allowed' %
+                (name, num_defaults))
+            return
+
         first = True  # first NOT including self
         for arg_type, arg in zip(arg_types, arguments):
           if not first:
@@ -1949,8 +1966,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
 
           # TODO: Turn this on.  Having stdlib problems, e.g.
           # examples/cartesian.
-          c_type = get_c_type(arg_type, param=False)
-          #c_type = get_c_type(arg_type, param=True)
+          c_type = GetCType(arg_type, param=False)
 
           arg_name = arg.variable.name
 
@@ -1959,6 +1975,14 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             continue
 
           self.decl_write('%s %s', c_type, arg_name)
+          if write_defaults and arg.initializer:
+            self.decl_write(' = ')
+
+            # Silly mechanism to activate self.write()
+            self.writing_default_arg = True
+            self.accept(arg.initializer)
+            self.writing_default_arg = False
+
           first = False
 
           # Params are locals.  There are 4 callers to _WriteFuncParams and we
@@ -1987,52 +2011,6 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
           arg_name, c_type = self.yield_accumulators[self.current_func_node]
           self.decl_write('%s %s', c_type, arg_name)
 
-    def _WithOneLessArg(self, o, class_name, ret_type):
-      default_val = o.arguments[-1].initializer
-      if default_val:  # e.g. osh/bool_parse.py has default val
-        if self.decl or class_name is None:
-          func_name = o.name
-        else:
-          func_name = '%s::%s' % (self.current_class_name, o.name)
-        self.write('\n')
-
-        # Write _Next() with no args
-        virtual = ''  # Note: the extra method can NEVER be virtual?
-        c_ret_type = get_c_type(ret_type)
-        if isinstance(ret_type, TupleType):
-          assert c_ret_type.endswith('*')
-          c_ret_type = c_ret_type[:-1]
-
-        self.decl_write_ind('%s%s %s(', virtual, c_ret_type, func_name)
-
-        # Write all params except last optional one
-        self._WriteFuncParams(o.type.arg_types[:-1], o.arguments[:-1])
-
-        self.decl_write(')')
-        if self.decl:
-          self.decl_write(';\n')
-        else:
-          self.write(' {\n')
-          # return MakeOshParser()
-          kw = '' if isinstance(ret_type, NoneTyp) else 'return '
-          self.write('  %s%s(' % (kw, o.name))
-
-          # Don't write self or last optional argument
-          first_arg_index = 0 if class_name is None else 1
-          pass_through = o.arguments[first_arg_index:-1]
-
-          if pass_through:
-            for i, arg in enumerate(pass_through):
-              if i != 0:
-                self.write(', ')
-              self.write(arg.variable.name)
-            self.write(', ')
-
-          # Now write default value, e.g. lex_mode_e::DBracket
-          self.accept(default_val)  
-          self.write(');\n')
-          self.write('}\n')
-
     def visit_func_def(self, o: 'mypy.nodes.FuncDef') -> T:
         if o.name == '__repr__':  # Don't translate
           return
@@ -2042,79 +2020,20 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
           self.virtual.OnMethod(self.current_class_name, o.name)
           return
 
-        # Hacky MANUAL LIST of functions and methods with OPTIONAL ARGUMENTS.
-        #
-        # For example, we have a method like this:
-        #   MakeOshParser(_Reader* line_reader, bool emit_comp_dummy)
-        #
-        # And we want to write an EXTRA C++ method like this:
-        #   MakeOshParser(_Reader* line_reader) {
-        #     return MakeOshParser(line_reader, true);
-        #   }
-
-        # TODO: restrict this
         class_name = self.current_class_name
         func_name = o.name
-        ret_type = o.type.ret_type
-
-        if (class_name in ('BoolParser', 'CommandParser') and
-              func_name == '_Next' or
-            class_name == 'ParseContext' and func_name == 'MakeOshParser' or
-            class_name == 'ErrorFormatter' and func_name == 'PrettyPrintError' or
-            class_name is None and func_name == 'PrettyPrintError' or
-            class_name == 'WordParser' and
-              func_name in ('_ParseVarExpr', '_ReadVarOpArg2') or
-            class_name == 'AbstractWordEvaluator' and 
-              func_name in ('EvalWordSequence2', '_EmptyStrOrError') or
-            # virtual method in several classes
-            func_name == 'EvalWordToString' or
-            class_name == 'ArithEvaluator' and func_name == '_ValToIntOrError' or
-            class_name == 'BoolEvaluator' and
-              func_name in ('_EvalCompoundWord', '_StringToIntegerOrError') or
-            class_name == 'CommandEvaluator' and
-              func_name in ('_Execute', 'ExecuteAndCatch') or
-            # core/executor.py
-            class_name == 'ShellExecutor' and func_name == '_MakeProcess' or
-            # osh/word_eval.py
-            class_name is None and func_name == 'ShouldArrayDecay' or
-            # core/state.py
-            class_name is None and func_name in ('_PackFlags', 'OshLanguageSetValue') or
-            class_name == 'Mem' and
-              func_name in ('GetValue', 'SetValue', 'GetCell',
-                            '_ResolveNameOrRef') or
-            class_name == 'SearchPath' and func_name == 'Lookup' or
-            # core/ui.py
-            class_name == 'ErrorFormatter' and
-              func_name in ('Print_', 'PrintMessage') or
-            func_name == 'GetLineSourceString' or
-            # osh/sh_expr_eval.py
-            class_name is None and func_name == 'EvalLhsAndLookup' or
-            class_name == 'SplitContext' and
-              func_name in ('SplitForWordEval', '_GetSplitter') or
-            # qsn_/qsn.py
-            class_name is None and 
-              func_name in ('maybe_encode', 'maybe_shell_encode') or
-            # osh/builtin_assign.py
-            class_name is None and func_name == '_PrintVariables' or
-            # virtual function
-            func_name == 'RunSimpleCommand' or
-            # core/main_loop.py
-            func_name == 'Batch'
-          ):
-          self._WithOneLessArg(o, class_name, ret_type)
 
         virtual = ''
         if self.decl:
           self.local_var_list = []  # Make a new instance to collect from
           self.local_vars[o] = self.local_var_list
 
-          #log('Is Virtual? %s %s', self.current_class_name, o.name)
           if self.virtual.IsVirtual(self.current_class_name, o.name):
             virtual = 'virtual '
 
         if not self.decl and self.current_class_name:
           # definition looks like
-          # void Type::foo(...);
+          # void Class::method(...);
           func_name = '%s::%s' % (self.current_class_name, o.name)
         else:
           # declaration inside class { }
@@ -2122,17 +2041,24 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
 
         self.write('\n')
 
-        c_ret_type, _, c_iter_list_type = get_c_return_type(ret_type)
+        c_ret_type, _, c_iter_list_type = GetCReturnType(o.type.ret_type)
         if c_iter_list_type is not None:
           # The function is a generator. Add an output param that references an
           # accumulator for the results.
           self.yield_accumulators[o] = ('_out_yield_acc', c_iter_list_type)
 
-        self.decl_write_ind('%s%s %s(', virtual, c_ret_type, func_name)
+        # Avoid ++ warnings by prepending [[noreturn]]
+        noreturn = ''
+        if func_name in ('e_die', 'e_die_status', 'e_strict', 'e_usage', 'p_die'):
+          noreturn = '[[noreturn]] '
 
+        self.decl_write_ind('%s%s%s %s(', noreturn, virtual, c_ret_type, func_name)
 
         self.current_func_node = o
-        self._WriteFuncParams(o.type.arg_types, o.arguments, update_locals=True)
+        self._WriteFuncParams(
+            o.type.arg_types, o.arguments, update_locals=True,
+            # write default values in the declaration only
+            write_defaults=self.decl)
 
         if self.decl:
           self.decl_write(');\n')
@@ -2211,7 +2137,8 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
               method_name = stmt.name
               if method_name == '__init__':
                 self.decl_write_ind('%s(', o.name)
-                self._WriteFuncParams(stmt.type.arg_types, stmt.arguments)
+                self._WriteFuncParams(
+                    stmt.type.arg_types, stmt.arguments, write_defaults=True)
                 self.decl_write(');\n')
 
                 # Visit for member vars
@@ -2256,7 +2183,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             non_pointer_members = []
 
             for name in self.member_vars:
-              c_type = get_c_type(self.member_vars[name])
+              c_type = GetCType(self.member_vars[name])
               if CTypeIsManaged(c_type):
                 pointer_members.append(name)
               else:
@@ -2270,7 +2197,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             # Has inheritance
 
             for name in sorted(self.member_vars):
-              c_type = get_c_type(self.member_vars[name])
+              c_type = GetCType(self.member_vars[name])
               if CTypeIsManaged(c_type):
                 mask_bits.append('%s(offsetof(%s, %s))' % (mask_func_name, o.name, name))
 
@@ -2295,7 +2222,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
               self.decl_write('\n')  # separate from functions
 
             for name in sorted_member_names:
-              c_type = get_c_type(self.member_vars[name])
+              c_type = GetCType(self.member_vars[name])
               self.decl_write_ind('%s %s;\n', c_type, name)
 
           self.current_class_name = None
@@ -2437,38 +2364,44 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         pass
 
     def visit_import_from(self, o: 'mypy.nodes.ImportFrom') -> T:
-        if self.decl:  # No duplicate 'using'
-          return
+        """
+        Write C++ namespace aliases and 'using' for imports.
+        We need them in the 'decl' phase for default arguments like
+        runtime_asdl::scope_e -> scope_e
+        """
 
-        if o.id in ('__future__', 'typing'):
-          return  # do nothing
-
-        # Later we need to turn module.func() into module::func(), without
-        # disturbing self.foo.
+        # For MemberExpr . -> module::func() or this->field.  Also needed in
+        # the decl phase for default arg values.
         for name, alias in o.names:
           if alias:
             self.imported_names.add(alias)
           else:
             self.imported_names.add(name)
 
+        if o.id in ('__future__', 'typing'):
+          return  # do nothing
+
+        #self.log('    %s ImportFrom id: %s', self.decl, o.id)
+
         for name, alias in o.names:
           #self.log('ImportFrom id: %s name: %s alias: %s', o.id, name, alias)
 
-          # These functions are defined in cpp/core_pyerror.h.
-          if name in ('log', 'p_die', 'e_die', 'e_strict'):  # varargs translation
+          if name == 'log':  # varargs translation
+            continue
+          if name == 'stderr_line':  # TODO: remove this
             continue
 
-          if name in ('e_usage', 'e_die_status', 'stderr_line'):  # not special
-            continue
-
-          # defined in mylib
-          if name in ('switch', 'tagswitch', 'iteritems', 'str_cmp',
-                      'NewDict', 'STDIN_FILENO'):
-            continue
+          if o.id == 'mycpp.mylib':
+            # These mylib functions are translated in a special way
+            if name in ('switch', 'tagswitch', 'iteritems', 'NewDict'):
+              continue
+            # STDIN_FILENO is #included
+            if name == 'STDIN_FILENO':
+              continue
 
           # A heuristic that works for the Oil import style.
           if '.' in o.id:
-            # from core.pyerror import log => using core::util::log
+            # from core.pyerror import log => using pyerror::log
             translate_import = True
           else:
             # from core import util => NOT translated
@@ -2487,90 +2420,24 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             if last_dotted == 'gen':
               return
 
-            # ASDL:
-            #
-            # namespaces:
-            #   expr_e::Const   # Compound sum
-            #   expr::Const
-            #   Id
-            #
-            # types:
-            #   expr__Const
-            #   expr_t   # sum type
-            #   expr_context_e   # simple sum.   This one is hard
-            #   double_quoted
-            #   Id_str
-
-            # Tag numbers/namespaces end with _n.  enum types end with _e.
-            # TODO: rename special cases
-
-            is_namespace = False
-
-            if last_dotted.endswith('_asdl'):
-              if name.endswith('_n') or name.endswith('_i') or name in (
-                'Id', 'hnode_e', 'source_e', 'place_e',
-
-                # syntax_asdl
-                'bracket_op', 'bracket_op_e',
-                'source', 'source_e',
-                'suffix_op', 'suffix_op_e',
-
-                'sh_lhs_expr', 'parse_result',
-
-                'command_e', 'command', 
-                'condition_e', 'condition', 
-                'for_iter_e', 'for_iter', 
-                'arith_expr_e', 'arith_expr',
-                'bool_expr_e', 'bool_expr',
-                'expr_e', 'expr',
-                'place_expr_e', 'place_expr', 
-                'word_part_e', 'word_part', 
-                'word_e', 'word',
-                'redir_loc_e', 'redir_loc',
-                'redir_param_e', 'redir_param',
-                'proc_sig_e', 'proc_sig',
-
-                'glob_part_e', 'glob_part',
-
-                're_e', 're',
-                're_repeat_e', 're_repeat',
-                'class_literal_term_e', 'class_literal_term',
-                'char_class_term_e', 'char_class_term',
-
-                'sh_lhs_expr_e', 'sh_lhs_expr',
-                'variant_type',
-
-                # runtime_asdl
-                'flag_type_e', 'flag_type',
-                'lvalue_e', 'lvalue',
-                'value_e', 'value',
-                'part_value_e', 'part_value',
-                'cmd_value_e', 'cmd_value',
-                'redirect_arg_e', 'redirect_arg',
-                'a_index_e', 'a_index',
-                'parse_result_e',
-                'printf_part_e', 'printf_part',
-                'wait_status', 'wait_status_e',
-                'trace', 'trace_e',
-                ):
-                is_namespace = True
-
-            if is_namespace:
-              # No aliases yet?
-              #lhs = alias if alias else name
-              self.write_ind(
-                  'namespace %s = %s::%s;\n', name, last_dotted, name)
+            if alias:
+              # using runtime_asdl::emit_e = EMIT;
+              self.write_ind('using %s = %s::%s;\n', alias, last_dotted, name)
             else:
-              if alias:
-                # using runtime_asdl::emit_e = EMIT;
-                self.write_ind('using %s = %s::%s;\n', alias, last_dotted, name)
-              else:
-                if 0:
-                  self.write_ind('using %s::%s;\n', '::'.join(dotted_parts), name)
-                else:
-                  #   from _devbuild.gen.id_kind_asdl import Id
-                  # -> using id_kind_asdl::Id.
-                  self.write_ind('using %s::%s;\n', last_dotted, name)
+              #    from _devbuild.gen.id_kind_asdl import Id
+              # -> using id_kind_asdl::Id.
+
+              using_str = 'using %s::%s;\n' % (last_dotted, name)
+              self.write_ind(using_str)
+
+              # Fully qualified:
+              # self.write_ind('using %s::%s;\n', '::'.join(dotted_parts), name)
+
+              # Hack for default args.  Without this limitation, we write
+              # 'using' of names that aren't declared yet.
+              if self.decl and name in ('scope_e', 'lex_mode_e'):
+                self.f.write(using_str)
+
           else:
             # If we're importing a module without an alias, we don't need to do
             # anything.  'namespace cmd_eval' is already defined.
@@ -2580,12 +2447,6 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             #    from asdl import format as fmt
             # -> namespace fmt = format;
             self.write_ind('namespace %s = %s;\n', alias, name)
-
-        # Old scheme
-        # from testpkg import module1 =>
-        # namespace module1 = testpkg.module1;
-        # Unfortunately the MyPy AST doesn't have enough info to distinguish
-        # imported packages and functions/classes?
 
     def visit_import_all(self, o: 'mypy.nodes.ImportAll') -> T:
         pass
@@ -2665,7 +2526,7 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
             # latter.
             ret_type = self.current_func_node.type.ret_type
 
-            c_ret_type, returning_tuple, _ = get_c_return_type(ret_type)
+            c_ret_type, returning_tuple, _ = GetCReturnType(ret_type)
 
             # return '', None  # tuple literal
             #   but NOT
@@ -2705,8 +2566,9 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         cond_type = self.types[cond_expr]
 
         if not _CheckConditionType(cond_type):
-          raise AssertionError(
-              "Can't use str, list, or dict in boolean context")
+          self.report_error(o,
+              "Use len(mystr), len(mylist) or len(mydict) in conditional")
+          return
 
         if (isinstance(cond, ComparisonExpr) and
             isinstance(cond.operands[0], NameExpr) and 
@@ -2814,8 +2676,11 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
         if not caught:
           self.write_ind('catch (std::exception const&) { }\n')
 
-        #if o.else_body:
-        #  raise AssertionError('try/else not supported')
+        if o.else_body:
+          self.report_error(o, 'try/else not supported')
+
+        # TODO: remove finally from core/process.py and other places, then turn
+        # this on
         #if o.finally_body:
         #  raise AssertionError('try/finally not supported')
 
@@ -2824,4 +2689,3 @@ class Generate(ExpressionVisitor[T], StatementVisitor[None]):
 
     def visit_exec_stmt(self, o: 'mypy.nodes.ExecStmt') -> T:
         pass
-

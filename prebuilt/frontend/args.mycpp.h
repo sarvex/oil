@@ -6,6 +6,10 @@
 #include "_gen/asdl/hnode.asdl.h"
 #include "cpp/qsn.h"
 #include "mycpp/runtime.h"
+
+#include "_gen/core/runtime.asdl.h"
+#include "_gen/frontend/syntax.asdl.h"
+#include "cpp/frontend_flag_spec.h"
 namespace runtime {  // forward declare
 
 
@@ -20,6 +24,11 @@ namespace format {  // forward declare
   class _PrettyPrinter;
 
 }  // forward declare namespace format
+
+namespace pyerror {  // forward declare
+
+
+}  // forward declare namespace pyerror
 
 namespace args {  // forward declare
 
@@ -132,6 +141,18 @@ void PrintTree(hnode_asdl::hnode_t* node, format::ColorOutput* f);
 
 }  // declare namespace format
 
+namespace pyerror {  // declare
+
+extern int NO_SPID;
+[[noreturn]] void e_usage(Str* msg, int span_id = NO_SPID);
+[[noreturn]] void e_strict(Str* msg, syntax_asdl::loc_t* location);
+[[noreturn]] void p_die(Str* msg, syntax_asdl::loc_t* location);
+[[noreturn]] void e_die(Str* msg, syntax_asdl::loc_t* location = nullptr);
+[[noreturn]] void e_die_status(int status, Str* msg, syntax_asdl::loc_t* location = nullptr);
+
+
+}  // declare namespace pyerror
+
 namespace args {  // declare
 
 extern int String;
@@ -157,7 +178,7 @@ class _Attributes {
 
 class Reader {
  public:
-  Reader(List<Str*>* argv, List<int>* spids);
+  Reader(List<Str*>* argv, List<int>* spids = nullptr);
   void Next();
   Str* Peek();
   Tuple2<Str*, int> Peek2();
@@ -190,7 +211,7 @@ class _Action {
 
 class _ArgAction : public _Action {
  public:
-  _ArgAction(Str* name, bool quit_parsing_flags, List<Str*>* valid);
+  _ArgAction(Str* name, bool quit_parsing_flags, List<Str*>* valid = nullptr);
   virtual runtime_asdl::value_t* _Value(Str* arg, int span_id);
   virtual bool OnMatch(Str* attached_arg, args::Reader* arg_r, args::_Attributes* out);
 
@@ -224,7 +245,7 @@ class SetToFloat : public _ArgAction {
 
 class SetToString : public _ArgAction {
  public:
-  SetToString(Str* name, bool quit_parsing_flags, List<Str*>* valid);
+  SetToString(Str* name, bool quit_parsing_flags, List<Str*>* valid = nullptr);
   virtual runtime_asdl::value_t* _Value(Str* arg, int span_id);
 
   DISALLOW_COPY_AND_ASSIGN(SetToString)
@@ -274,7 +295,7 @@ class SetOption : public _Action {
 
 class SetNamedOption : public _Action {
  public:
-  SetNamedOption(bool shopt);
+  SetNamedOption(bool shopt = false);
   void ArgName(Str* name);
   virtual bool OnMatch(Str* attached_arg, args::Reader* arg_r, args::_Attributes* out);
 

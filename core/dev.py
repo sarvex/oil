@@ -16,9 +16,10 @@ from core import error
 from core import optview
 from core import state
 from core import ui
-from qsn_ import qsn
 from core.pyerror import log
+from frontend import location
 from osh import word_
+from qsn_ import qsn
 from pylib import os_path
 from mycpp import mylib
 from mycpp.mylib import tagswitch, iteritems
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
   from frontend.parse_lib import ParseContext
   from core.state import MutableOpts, Mem
   from osh.word_eval import NormalWordEvaluator
-  #from osh.cmd_eval import CommandEvaluator
+  from osh.cmd_eval import CommandEvaluator
 
 
 class CrashDumper(object):
@@ -81,20 +82,21 @@ class CrashDumper(object):
     self.debug_stack = None
     self.error = None  # type: Dict[str, Any]
 
-  def MaybeCollect(self, cmd_ev, err):
-    # type: (Any, _ErrorWithLocation) -> None
-    # TODO: Any -> CommandEvaluator
+  def MaybeRecord(self, cmd_ev, err):
+    # type: (CommandEvaluator, _ErrorWithLocation) -> None
     """
+    Collect data for a crash dump.
+
     Args:
       cmd_ev: CommandEvaluator instance
-      error: _ErrorWithLocation (ParseError or FatalRuntimeError)
+      error: _ErrorWithLocation (ParseError or error.FatalRuntime)
     """
     if not self.do_collect:  # Either we already did it, or there is no file
       return
 
     if mylib.PYTHON:  # can't translate yet due to dynamic typing
       self.var_stack, self.argv_stack, self.debug_stack = cmd_ev.mem.Dump()
-      span_id = word_.SpanIdFromError(err)
+      span_id = location.GetSpanId(err.location)
 
       self.error = {
          'msg': err.UserErrorString(),
@@ -102,7 +104,7 @@ class CrashDumper(object):
       }
 
       if span_id != runtime.NO_SPID:
-        span = cmd_ev.arena.GetLineSpan(span_id)
+        span = cmd_ev.arena.GetToken(span_id)
         line_id = span.line_id
 
         # Could also do msg % args separately, but JavaScript won't be able to
@@ -563,9 +565,8 @@ class Tracer(object):
     buf.write(prefix)
 
     buf.write(keyword)
-    if arg != 0:
-      buf.write(' ')
-      buf.write(str(arg))
+    buf.write(' ')
+    buf.write(str(arg))  # Note: 'return' is equivalent to 'return 0'
     buf.write('\n')
 
     self.f.write(buf.getvalue())
@@ -579,8 +580,8 @@ class Tracer(object):
     if not buf:
       return
 
-    left_span = arena.GetLineSpan(left_spid)
-    right_span = arena.GetLineSpan(right_spid)
+    left_span = arena.GetToken(left_spid)
+    right_span = arena.GetToken(right_spid)
     line = arena.GetLine(left_span.line_id)
     start = left_span.col
 

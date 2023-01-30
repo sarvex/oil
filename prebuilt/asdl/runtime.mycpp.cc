@@ -36,66 +36,68 @@ GLOBAL_STR(str27, "%s%s: ");
 GLOBAL_STR(str28, "\n");
 GLOBAL_STR(str29, "\n");
 GLOBAL_STR(str30, " ");
-GLOBAL_STR(str31, " ");
+GLOBAL_STR(str31, "UNTYPED any");
 GLOBAL_STR(str32, " ");
-GLOBAL_STR(str33, " %s:");
-GLOBAL_STR(str34, "[");
-GLOBAL_STR(str35, " ");
-GLOBAL_STR(str36, "]");
-GLOBAL_STR(str37, "\u001b[0;0m");
-GLOBAL_STR(str38, "\u001b[1m");
-GLOBAL_STR(str39, "\u001b[4m");
-GLOBAL_STR(str40, "\u001b[7m");
-GLOBAL_STR(str41, "\u001b[31m");
-GLOBAL_STR(str42, "\u001b[32m");
-GLOBAL_STR(str43, "\u001b[33m");
-GLOBAL_STR(str44, "\u001b[34m");
-GLOBAL_STR(str45, "&");
-GLOBAL_STR(str46, "&amp;");
-GLOBAL_STR(str47, "<");
-GLOBAL_STR(str48, "&lt;");
-GLOBAL_STR(str49, ">");
-GLOBAL_STR(str50, "&gt;");
-GLOBAL_STR(str51, "\\'\r\n\t\u0000");
-GLOBAL_STR(str52, "$'");
-GLOBAL_STR(str53, "'");
-GLOBAL_STR(str54, "'");
-GLOBAL_STR(str55, "");
+GLOBAL_STR(str33, " ");
+GLOBAL_STR(str34, " %s:");
+GLOBAL_STR(str35, "UNTYPED any");
+GLOBAL_STR(str36, "[");
+GLOBAL_STR(str37, " ");
+GLOBAL_STR(str38, "]");
+GLOBAL_STR(str39, "\u001b[0;0m");
+GLOBAL_STR(str40, "\u001b[1m");
+GLOBAL_STR(str41, "\u001b[4m");
+GLOBAL_STR(str42, "\u001b[7m");
+GLOBAL_STR(str43, "\u001b[31m");
+GLOBAL_STR(str44, "\u001b[32m");
+GLOBAL_STR(str45, "\u001b[33m");
+GLOBAL_STR(str46, "\u001b[34m");
+GLOBAL_STR(str47, "&");
+GLOBAL_STR(str48, "&amp;");
+GLOBAL_STR(str49, "<");
+GLOBAL_STR(str50, "&lt;");
+GLOBAL_STR(str51, ">");
+GLOBAL_STR(str52, "&gt;");
+GLOBAL_STR(str53, "\\'\r\n\t\u0000");
+GLOBAL_STR(str54, "$'");
+GLOBAL_STR(str55, "'");
 GLOBAL_STR(str56, "'");
-GLOBAL_STR(str57, "'");
-GLOBAL_STR(str58, "");
+GLOBAL_STR(str57, "");
+GLOBAL_STR(str58, "'");
 GLOBAL_STR(str59, "'");
-GLOBAL_STR(str60, "'");
-GLOBAL_STR(str61, "");
-GLOBAL_STR(str62, "\\");
-GLOBAL_STR(str63, "\\\\");
-GLOBAL_STR(str64, "'");
-GLOBAL_STR(str65, "\\'");
-GLOBAL_STR(str66, "\n");
-GLOBAL_STR(str67, "\\n");
-GLOBAL_STR(str68, "\r");
-GLOBAL_STR(str69, "\\r");
-GLOBAL_STR(str70, "\t");
-GLOBAL_STR(str71, "\\t");
-GLOBAL_STR(str72, "\u0000");
-GLOBAL_STR(str73, "\\x00");
-GLOBAL_STR(str74, "\\0");
-GLOBAL_STR(str75, "");
-GLOBAL_STR(str76, "");
+GLOBAL_STR(str60, "");
+GLOBAL_STR(str61, "'");
+GLOBAL_STR(str62, "'");
+GLOBAL_STR(str63, "");
+GLOBAL_STR(str64, "\\");
+GLOBAL_STR(str65, "\\\\");
+GLOBAL_STR(str66, "'");
+GLOBAL_STR(str67, "\\'");
+GLOBAL_STR(str68, "\n");
+GLOBAL_STR(str69, "\\n");
+GLOBAL_STR(str70, "\r");
+GLOBAL_STR(str71, "\\r");
+GLOBAL_STR(str72, "\t");
+GLOBAL_STR(str73, "\\t");
+GLOBAL_STR(str74, "\u0000");
+GLOBAL_STR(str75, "\\x00");
+GLOBAL_STR(str76, "\\0");
 GLOBAL_STR(str77, "");
-GLOBAL_STR(str78, "\\");
-GLOBAL_STR(str79, "\\\\");
-GLOBAL_STR(str80, "'");
-GLOBAL_STR(str81, "\\'");
-GLOBAL_STR(str82, "\n");
-GLOBAL_STR(str83, "\\n");
-GLOBAL_STR(str84, "\r");
-GLOBAL_STR(str85, "\\r");
-GLOBAL_STR(str86, "\t");
-GLOBAL_STR(str87, "\\t");
-GLOBAL_STR(str88, "\u0000");
-GLOBAL_STR(str89, "\\x00");
-GLOBAL_STR(str90, "\\0");
+GLOBAL_STR(str78, "");
+GLOBAL_STR(str79, "");
+GLOBAL_STR(str80, "\\");
+GLOBAL_STR(str81, "\\\\");
+GLOBAL_STR(str82, "'");
+GLOBAL_STR(str83, "\\'");
+GLOBAL_STR(str84, "\n");
+GLOBAL_STR(str85, "\\n");
+GLOBAL_STR(str86, "\r");
+GLOBAL_STR(str87, "\\r");
+GLOBAL_STR(str88, "\t");
+GLOBAL_STR(str89, "\\t");
+GLOBAL_STR(str90, "\u0000");
+GLOBAL_STR(str91, "\\x00");
+GLOBAL_STR(str92, "\\0");
 
 namespace ansi {  // forward declare
 
@@ -140,11 +142,9 @@ extern int BIT8_U_ESCAPE;
 extern int BIT8_X_ESCAPE;
 extern int MUST_QUOTE;
 bool _encode(Str* s, int bit8_display, bool shell_compat, List<Str*>* parts);
-Str* maybe_shell_encode(Str* s);
-Str* maybe_shell_encode(Str* s, int flags);
-Str* maybe_encode(Str* s);
-Str* maybe_encode(Str* s, int bit8_display);
-Str* encode(Str* s, int bit8_display);
+Str* maybe_shell_encode(Str* s, int flags = 0);
+Str* maybe_encode(Str* s, int bit8_display = BIT8_UTF8);
+Str* encode(Str* s, int bit8_display = BIT8_UTF8);
 void _encode_bytes_x(Str* s, bool shell_compat, List<Str*>* parts);
 extern int Ascii;
 extern int Begin2;
@@ -196,7 +196,7 @@ Str* FALSE_STR = str4;
 
 namespace format {  // define
 
-namespace hnode_e = hnode_asdl::hnode_e;
+using hnode_asdl::hnode_e;
 using hnode_asdl::hnode_t;
 using hnode_asdl::hnode__Record;
 using hnode_asdl::hnode__Array;
@@ -217,7 +217,7 @@ format::ColorOutput* DetectConsoleOutput(mylib::Writer* f) {
 }
 
 ColorOutput::ColorOutput(mylib::Writer* f) 
-    : GC_CLASS(header_, HeapTag::FixedSize, field_mask(), kNoObjLen) {
+    : GC_CLASS_FIXED(header_, field_mask(), sizeof(ColorOutput)) {
   this->f = f;
   this->num_chars = 0;
 }
@@ -386,7 +386,7 @@ void AnsiOutput::PopColor() {
 int INDENT = 2;
 
 _PrettyPrinter::_PrettyPrinter(int max_col) 
-    : GC_CLASS(header_, HeapTag::Opaque, kZeroMask, kNoObjLen) {
+    : GC_CLASS_SCANNED(header_, 0, sizeof(_PrettyPrinter)) {
   this->max_col = max_col;
 }
 
@@ -587,7 +587,11 @@ void _PrettyPrinter::PrintNode(hnode_asdl::hnode_t* node, format::ColorOutput* f
     if (tag == hnode_e::External) {
       hnode__External* node = static_cast<hnode__External*>(UP_node);
       f->PushColor(color_e::External);
-      f->write(repr(node->obj));
+      // if not PYTHON
+      {
+        f->write(str31);
+      }
+      // endif MYCPP
       f->PopColor();
     }
     else {
@@ -612,14 +616,14 @@ bool _TrySingleLineObj(hnode_asdl::hnode__Record* node, format::ColorOutput* f, 
       f->PushColor(color_e::TypeName);
       f->write(node->node_type);
       f->PopColor();
-      f->write(str31);
+      f->write(str32);
     }
     i = 0;
     for (ListIter<hnode_asdl::hnode_t*> it(node->unnamed_fields); !it.Done(); it.Next(), ++i) {
       hnode_asdl::hnode_t* val = it.Value();
       StackRoots _for({&val    });
       if (i != 0) {
-        f->write(str32);
+        f->write(str33);
       }
       if (!_TrySingleLine(val, f, max_chars)) {
         return false;
@@ -662,25 +666,29 @@ bool _TrySingleLine(hnode_asdl::hnode_t* node, format::ColorOutput* f, int max_c
     if (tag == hnode_e::External) {
       hnode__External* node = static_cast<hnode__External*>(UP_node);
       f->PushColor(color_e::External);
-      f->write(repr(node->obj));
+      // if not PYTHON
+      {
+        f->write(str35);
+      }
+      // endif MYCPP
       f->PopColor();
     }
     else {
       if (tag == hnode_e::Array) {
         hnode__Array* node = static_cast<hnode__Array*>(UP_node);
-        f->write(str34);
+        f->write(str36);
         i = 0;
         for (ListIter<hnode_asdl::hnode_t*> it(node->children); !it.Done(); it.Next(), ++i) {
           hnode_asdl::hnode_t* item = it.Value();
           StackRoots _for({&item        });
           if (i != 0) {
-            f->write(str35);
+            f->write(str37);
           }
           if (!_TrySingleLine(item, f, max_chars)) {
             return false;
           }
         }
-        f->write(str36);
+        f->write(str38);
       }
       else {
         if (tag == hnode_e::Record) {
@@ -712,14 +720,14 @@ void PrintTree(hnode_asdl::hnode_t* node, format::ColorOutput* f) {
 
 namespace ansi {  // define
 
-Str* RESET = str37;
-Str* BOLD = str38;
-Str* UNDERLINE = str39;
-Str* REVERSE = str40;
-Str* RED = str41;
-Str* GREEN = str42;
-Str* YELLOW = str43;
-Str* BLUE = str44;
+Str* RESET = str39;
+Str* BOLD = str40;
+Str* UNDERLINE = str41;
+Str* REVERSE = str42;
+Str* RED = str43;
+Str* GREEN = str44;
+Str* YELLOW = str45;
+Str* BLUE = str46;
 
 }  // define namespace ansi
 
@@ -729,9 +737,9 @@ namespace cgi {  // define
 Str* escape(Str* s) {
   StackRoots _roots({&s});
 
-  s = s->replace(str45, str46);
   s = s->replace(str47, str48);
   s = s->replace(str49, str50);
+  s = s->replace(str51, str52);
   return s;
 }
 
@@ -754,10 +762,6 @@ bool _encode(Str* s, int bit8_display, bool shell_compat, List<Str*>* parts) {
   else {
     return _encode_runes(s, bit8_display, shell_compat, parts);
   }
-}
-
-Str* maybe_shell_encode(Str* s) {
-  return maybe_shell_encode(s, 0);
 }
 
 Str* maybe_shell_encode(Str* s, int flags) {
@@ -783,7 +787,7 @@ Str* maybe_shell_encode(Str* s, int flags) {
         continue;
       }
       quote = 1;
-      if ((str_contains(str51, ch) or IsUnprintableLow(ch))) {
+      if ((str_contains(str53, ch) or IsUnprintableLow(ch))) {
         quote = 2;
         break;
       }
@@ -795,17 +799,13 @@ Str* maybe_shell_encode(Str* s, int flags) {
   parts = Alloc<List<Str*>>();
   valid_utf8 = _encode(s, bit8_display, true, parts);
   if ((!valid_utf8 or quote == 2)) {
-    prefix = str52;
+    prefix = str54;
   }
   else {
-    prefix = str53;
+    prefix = str55;
   }
-  parts->append(str54);
-  return str_concat(prefix, str55->join(parts));
-}
-
-Str* maybe_encode(Str* s) {
-  return maybe_encode(s, BIT8_UTF8);
+  parts->append(str56);
+  return str_concat(prefix, str57->join(parts));
 }
 
 Str* maybe_encode(Str* s, int bit8_display) {
@@ -831,10 +831,10 @@ Str* maybe_encode(Str* s, int bit8_display) {
     return s;
   }
   parts = Alloc<List<Str*>>();
-  parts->append(str56);
+  parts->append(str58);
   _encode(s, bit8_display, false, parts);
-  parts->append(str57);
-  return str58->join(parts);
+  parts->append(str59);
+  return str60->join(parts);
 }
 
 Str* encode(Str* s, int bit8_display) {
@@ -842,10 +842,10 @@ Str* encode(Str* s, int bit8_display) {
   StackRoots _roots({&s, &parts});
 
   parts = Alloc<List<Str*>>();
-  parts->append(str59);
+  parts->append(str61);
   _encode(s, bit8_display, false, parts);
-  parts->append(str60);
-  return str61->join(parts);
+  parts->append(str62);
+  return str63->join(parts);
 }
 
 void _encode_bytes_x(Str* s, bool shell_compat, List<Str*>* parts) {
@@ -855,28 +855,28 @@ void _encode_bytes_x(Str* s, bool shell_compat, List<Str*>* parts) {
   for (StrIter it(s); !it.Done(); it.Next()) {
     Str* byte = it.Value();
     StackRoots _for({&byte  });
-    if (str_equals(byte, str62)) {
-      part = str63;
+    if (str_equals(byte, str64)) {
+      part = str65;
     }
     else {
-      if (str_equals(byte, str64)) {
-        part = str65;
+      if (str_equals(byte, str66)) {
+        part = str67;
       }
       else {
-        if (str_equals(byte, str66)) {
-          part = str67;
+        if (str_equals(byte, str68)) {
+          part = str69;
         }
         else {
-          if (str_equals(byte, str68)) {
-            part = str69;
+          if (str_equals(byte, str70)) {
+            part = str71;
           }
           else {
-            if (str_equals(byte, str70)) {
-              part = str71;
+            if (str_equals(byte, str72)) {
+              part = str73;
             }
             else {
-              if (str_equals(byte, str72)) {
-                part = shell_compat ? str73 : str74;
+              if (str_equals(byte, str74)) {
+                part = shell_compat ? str75 : str76;
               }
               else {
                 if (IsUnprintableLow(byte)) {
@@ -927,9 +927,9 @@ bool _encode_runes(Str* s, int bit8_display, bool shell_compat, List<Str*>* part
 
   valid_utf8 = true;
   state = Start;
-  r1 = str75;
-  r2 = str76;
-  r3 = str77;
+  r1 = str77;
+  r2 = str78;
+  r3 = str79;
   for (StrIter it(s); !it.Done(); it.Next()) {
     Str* byte = it.Value();
     StackRoots _for({&byte  });
@@ -974,28 +974,28 @@ bool _encode_runes(Str* s, int bit8_display, bool shell_compat, List<Str*>* part
     }
     if (typ == Ascii) {
       state = Start;
-      if (str_equals(byte, str78)) {
-        out = str79;
+      if (str_equals(byte, str80)) {
+        out = str81;
       }
       else {
-        if (str_equals(byte, str80)) {
-          out = str81;
+        if (str_equals(byte, str82)) {
+          out = str83;
         }
         else {
-          if (str_equals(byte, str82)) {
-            out = str83;
+          if (str_equals(byte, str84)) {
+            out = str85;
           }
           else {
-            if (str_equals(byte, str84)) {
-              out = str85;
+            if (str_equals(byte, str86)) {
+              out = str87;
             }
             else {
-              if (str_equals(byte, str86)) {
-                out = str87;
+              if (str_equals(byte, str88)) {
+                out = str89;
               }
               else {
-                if (str_equals(byte, str88)) {
-                  out = shell_compat ? str89 : str90;
+                if (str_equals(byte, str90)) {
+                  out = shell_compat ? str91 : str92;
                 }
                 else {
                   if (IsUnprintableLow(byte)) {

@@ -30,7 +30,7 @@ def _CreateSum(sum_name, variant_names):
   from _devbuild.gen.option_asdl import opt_num
   opt_num.nounset
   """
-  sum_ = ast.Sum([ast.Constructor(name) for name in variant_names])
+  sum_ = ast.SimpleSum([ast.Constructor(name) for name in variant_names])
   typ = ast.TypeDecl(sum_name, sum_)
   return typ
 
@@ -63,6 +63,8 @@ def main(argv):
 #define OPTION_ASDL_H
 
 namespace option_asdl {
+
+#define ASDL_NAMES struct
 """)
 
       # Don't need option_str()

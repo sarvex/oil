@@ -13,9 +13,11 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "cpp/core_error.h"
-#include "cpp/core_pyerror.h"  // e_die for strftime
 #include "mycpp/runtime.h"
+// To avoid circular dependency with e_die()
+#include "prebuilt/core/error.mycpp.h"
+
+using pyerror::e_die;
 
 namespace fcntl_ {
 
@@ -132,13 +134,13 @@ List<Str*>* listdir(Str* path) {
     errno = 0;
     struct dirent* ep = readdir(dirp);
     if (ep == NULL) {
-      if (errno == 0) {
-        break;
-      } else {
+      if (errno != 0) {
         closedir(dirp);
         throw Alloc<OSError>(errno);
       }
+      break;  // no more files
     }
+    // Skip . and ..
     int name_len = strlen(ep->d_name);
     if (ep->d_name[0] == '.' &&
         (name_len == 1 || (ep->d_name[1] == '.' && name_len == 2))) {
@@ -196,7 +198,8 @@ Str* strftime(Str* s, time_t ts) {
     // bash silently truncates on large format string like
     //   printf '%(%Y)T'
     // Oil doesn't mask errors
-    // No error location info, but leaving it out points reliably to 'printf'
+    // Leaving out location info points to 'printf' builtin
+
     e_die(StrFromC("strftime() result exceeds 1024 bytes"));
   }
   result->MaybeShrink(n);

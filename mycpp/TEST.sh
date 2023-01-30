@@ -195,6 +195,13 @@ unit() {
 # Test failures
 #
 
+translate-example() {
+  local ex=$1
+
+  local mycpp=_bin/shwrap/mycpp_main
+  $mycpp '.:pyext' _tmp/mycpp-invalid $ex
+}
+
 test-invalid-examples() {
   local mycpp=_bin/shwrap/mycpp_main
   ninja $mycpp
@@ -203,12 +210,26 @@ test-invalid-examples() {
     banner "$ex"
 
     set +o errexit
-    $mycpp '.:pyext' _tmp/mycpp-invalid $ex
+    translate-example $ex
     local status=$?
     set -o errexit
 
-    if test $status -ne 1; then
-      die "mycpp $ex: expected status 1, got $status"
+    local expected_status=1
+
+    case $ex in 
+      */invalid_condition.py)
+        expected_status=6
+        ;;
+      */invalid_default_args.py)
+        expected_status=4
+        ;;
+      */invalid_try_else.py)
+        expected_status=3
+        ;;
+    esac
+
+    if test $status -ne $expected_status; then
+      die "mycpp $ex: expected status $expected_status, got $status"
     fi
 
   done

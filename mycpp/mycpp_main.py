@@ -75,6 +75,10 @@ def get_mypy_config(paths: List[str],
     # 10/2019: FIX for MyPy 0.730.  Not sure why I need this but I do.
     options.preserve_asts = True
 
+    # 1/2023: Workaround for conditional import in osh/builtin_comp.py
+    # Same as devtools/types.sh
+    options.warn_unused_ignores = False
+
     for source in sources:
         options.per_module_options.setdefault(source.module, {})['mypyc'] = True
 
@@ -277,6 +281,7 @@ def main(argv):
                               virtual=virtual, forward_decl=True)
 
     p2.visit_mypy_file(module)
+    MaybeExitWithErrors(p2)
 
   # After seeing class and method names in the first pass, figure out which
   # ones are virtual.  We use this info in the second pass.
@@ -308,6 +313,7 @@ def main(argv):
                               virtual=virtual, decl=True)
 
     p3.visit_mypy_file(module)
+    MaybeExitWithErrors(p3)
 
   log('\tmycpp pass: IMPL')
 
@@ -319,8 +325,20 @@ def main(argv):
                               local_vars=local_vars, fmt_ids=fmt_ids,
                               field_gc=field_gc)
     p4.visit_mypy_file(module)
+    MaybeExitWithErrors(p4)
 
   return 0  # success
+
+
+def MaybeExitWithErrors(p):
+  # Check for errors we collected
+  num_errors = len(p.errors_keep_going)
+  if num_errors != 0:
+    log('')
+    log('%s: %d translation errors (after type checking)', sys.argv[0], num_errors)
+
+    # A little hack to tell the test-invalid-examples harness how many errors we had
+    sys.exit(min(num_errors, 255))
 
 
 if __name__ == '__main__':

@@ -118,6 +118,7 @@ def _IsManagedType(typ):
 def _DefaultValue(typ):
   type_name = typ.name
 
+  # Note: NewDict and NewList makes constructors INVALID at the top level.
   if type_name == 'map':
     k_type = _GetCppType(typ.children[0])
     v_type = _GetCppType(typ.children[1])
@@ -141,7 +142,7 @@ def _DefaultValue(typ):
     default = '0.0'  # or should it be NaN?
 
   elif type_name == 'string':
-    default = 'StrFromC("")'
+    default = 'kEmptyString'
 
   elif typ.resolved and isinstance(typ.resolved, ast.SimpleSum):
     sum_type = typ.resolved
@@ -258,14 +259,25 @@ class ClassDefVisitor(visitor.AsdlVisitor):
       else:
         enum_name = '%s_e' % sum_name if self.e_suffix else sum_name
 
-      self.Emit('namespace %s {' % enum_name, depth)
+      # Awkward struct/enum C++ idiom because:
+
+      # 1. namespace can't be "imported" with 'using'
+      # 2. plain enum pollutes outer namespace
+      # 3. C++ 11 'enum class' does not allow conversion to int
+      # 4. namespace and 'static const int' or 'static constexpr int' gives
+      #    weird link errors
+      # https://quuxplusone.github.io/blog/2020/09/19/value-or-pitfall/
+
+      self.Emit('ASDL_NAMES %s {' % enum_name, depth)
+      self.Emit('  enum no_name {', depth)
       for name, tag_num in enum:
-        self.Emit('const int %s = %d;' % (name, tag_num), depth + 1)
+        self.Emit('%s = %d,' % (name, tag_num), depth + 1)
 
       if is_simple:
         # Help in sizing array.  Note that we're 1-based.
-        self.Emit('const int %s = %d;' % ('ARRAY_SIZE', len(enum) + 1),
-                  depth + 1)
+        self.Emit('ARRAY_SIZE = %d,' % (len(enum) + 1), depth + 1)
+
+      self.Emit('  };', depth)
       self.Emit('};', depth)
 
       self.Emit('', depth)
@@ -335,12 +347,12 @@ class ClassDefVisitor(visitor.AsdlVisitor):
                        depth, tag)
 
     # Allow expr::Const in addition to expr__Const.
-    Emit('namespace %(sum_name)s {')
+    Emit('ASDL_NAMES %(sum_name)s {')
     for variant in sum.types:
       if not variant.shared_type:
         variant_name = variant.name
         Emit('  typedef %(sum_name)s__%(variant_name)s %(variant_name)s;')
-    Emit('}')
+    Emit('};')
     Emit('')
 
   def _GenClass(self, ast_node, attributes, class_name, base_classes, depth, tag):

@@ -9,6 +9,7 @@ Instead of:
 """
 
 from _devbuild.gen.id_kind_asdl import Id
+from _devbuild.gen.syntax_asdl import loc, Token
 from core import pyutil
 from core import ui
 from core.pyerror import e_die, e_strict, log
@@ -68,7 +69,7 @@ INVALID_START = 'Invalid start of UTF-8 character'
 def _CheckContinuationByte(byte):
   # type: (str) -> None
   if (ord(byte) >> 6) != 0b10:
-    e_strict(INVALID_CONT)
+    e_strict(INVALID_CONT, loc.Missing())
 
 
 def _Utf8CharLen(starting_byte):
@@ -82,7 +83,7 @@ def _Utf8CharLen(starting_byte):
   elif (starting_byte >> 3) == 0b11110:
     return 4
   else:
-    e_strict(INVALID_START)
+    e_strict(INVALID_START, loc.Missing())
 
 
 def _NextUtf8Char(s, i):
@@ -101,7 +102,7 @@ def _NextUtf8Char(s, i):
   length = _Utf8CharLen(byte_as_int)
   for j in xrange(i + 1, i + length):
     if j >= n:
-      e_strict(INCOMPLETE_CHAR)
+      e_strict(INCOMPLETE_CHAR, loc.Missing())
     _CheckContinuationByte(s[j])
 
   return i + length
@@ -150,10 +151,10 @@ def PreviousUtf8Char(s, i):
         # Leaving a generic error for now, but if we want to, it's not
         # hard to calculate the position where things go wrong.  Note
         # that offset might be more than 4, for an invalid utf-8 string.
-        e_strict(INVALID_START)
+        e_strict(INVALID_START, loc.Missing())
       return i
 
-  e_strict(INVALID_START)
+  e_strict(INVALID_START, loc.Missing())
 
 
 def CountUtf8Chars(s):
@@ -259,7 +260,7 @@ def DoUnarySuffixOp(s, op, arg, is_extglob):
     # These operators take glob arguments, we don't implement that obscure case.
     elif tok.id == Id.VOp1_Comma:  # Only lowercase the first letter
       if arg != '':
-        e_die("%s can't have an argument", ui.PrettyId(tok.id), token=tok)
+        e_die("%s can't have an argument" % ui.PrettyId(tok.id), tok)
       if len(s):
         return s[0].lower() + s[1:]
       else:
@@ -267,12 +268,12 @@ def DoUnarySuffixOp(s, op, arg, is_extglob):
 
     elif tok.id == Id.VOp1_DComma:
       if arg != '':
-        e_die("%s can't have an argument", ui.PrettyId(tok.id), token=tok)
+        e_die("%s can't have an argument" % ui.PrettyId(tok.id), tok)
       return s.lower()
 
     elif tok.id == Id.VOp1_Caret:  # Only uppercase the first letter
       if arg != '':
-        e_die("%s can't have an argument", ui.PrettyId(tok.id), token=tok)
+        e_die("%s can't have an argument" % ui.PrettyId(tok.id), tok)
       if len(s):
         return s[0].upper() + s[1:]
       else:
@@ -280,7 +281,7 @@ def DoUnarySuffixOp(s, op, arg, is_extglob):
 
     elif tok.id == Id.VOp1_DCaret:
       if arg != '':
-        e_die("%s can't have an argument", ui.PrettyId(tok.id), token=tok)
+        e_die("%s can't have an argument" % ui.PrettyId(tok.id), tok)
       return s.upper()
 
     else:  # e.g. ^ ^^ , ,,
@@ -389,15 +390,15 @@ def _PatSubAll(s, regex, replace_str):
 
 class GlobReplacer(object):
 
-  def __init__(self, regex, replace_str, slash_spid):
-    # type: (str, str, int) -> None
+  def __init__(self, regex, replace_str, slash_tok):
+    # type: (str, str, Token) -> None
 
     # TODO: It would be nice to cache the compilation of the regex here,
     # instead of just the string.  That would require more sophisticated use of
     # the Python/C API in libc.c, which we might want to avoid.
     self.regex = regex
     self.replace_str = replace_str
-    self.slash_spid = slash_spid
+    self.slash_tok = slash_tok
 
   def __repr__(self):
     # type: () -> str
@@ -412,11 +413,11 @@ class GlobReplacer(object):
       try:
         return _PatSubAll(s, regex, self.replace_str)  # loop over matches
       except RuntimeError as e:
-        # libc.regex_first_group_match raises RuntimeError.
-        # note: MyPy doesn't know RuntimeError has e.message (and e.args)
+        # Not sure if this is possible since we convert from glob:
+        # libc.regex_first_group_match raises RuntimeError on regex syntax
+        # error.
         msg = e.message  # type: str
-        e_die('Error matching regex %r: %s', regex, msg,
-              span_id=self.slash_spid)
+        e_die('Error matching regex %r: %s' % (regex, msg), self.slash_tok)
 
     if op.replace_mode == Id.Lit_Pound:
       regex = '^' + regex

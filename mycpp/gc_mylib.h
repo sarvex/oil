@@ -5,6 +5,10 @@
 
 #include <limits.h>  // CHAR_BIT
 
+#include "mycpp/gc_alloc.h"  // gHeap
+#include "mycpp/gc_dict.h"   // kDeletedEntry
+#include "mycpp/gc_tuple.h"
+
 template <class K, class V>
 class Dict;
 
@@ -18,7 +22,7 @@ const int kIntBufSize = CHAR_BIT * sizeof(int) / 3 + 3;
 
 namespace mylib {
 
-void ProcessInit();
+void InitCppOnly();
 
 // Wrappers around our C++ APIs
 
@@ -31,10 +35,12 @@ inline Str* StrFromC(const char* s) {
   return ::StrFromC(s);
 }
 
-const int kStdout = 1;
-const int kStderr = 2;
+void print_stderr(Str* s);
 
-void writeln(Str* s, int fd = kStdout);
+// const int kStdout = 1;
+// const int kStderr = 2;
+
+// void writeln(Str* s, int fd = kStdout);
 
 Tuple2<Str*, Str*> split_once(Str* s, Str* delim);
 

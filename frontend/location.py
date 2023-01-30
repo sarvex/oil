@@ -9,6 +9,7 @@ TODO: Move some of osh/word_ here.
 from __future__ import print_function
 
 from _devbuild.gen.syntax_asdl import (
+    loc_t, loc_e, loc__Span, loc__WordPart, loc__Word,
     command_e, command_t, command__Simple, command__ShAssignment,
     command__Pipeline, command__AndOr, command__DoGroup, command__Sentence,
     command__Subshell, command__WhileUntil, command__If, command__Case,
@@ -22,7 +23,46 @@ from core.pyerror import log
 from mycpp.mylib import tagswitch
 from osh import word_
 
-from typing import cast
+from typing import cast, TYPE_CHECKING
+
+
+def GetSpanId(loc_):
+  # type: (loc_t) -> int
+
+  UP_location = loc_
+  with tagswitch(loc_) as case:
+    if case(loc_e.Missing):
+      return runtime.NO_SPID
+
+    elif case(loc_e.Token):
+      tok = cast(Token, UP_location)
+      if tok:
+        return tok.span_id
+      else:
+        return runtime.NO_SPID
+
+    elif case(loc_e.Span):
+      loc_ = cast(loc__Span, UP_location)
+      return loc_.span_id
+
+    elif case(loc_e.WordPart):
+      loc_ = cast(loc__WordPart, UP_location)
+      if loc_.p:
+        return word_.LeftMostSpanForPart(loc_.p)
+      else:
+        return runtime.NO_SPID
+
+    elif case(loc_e.Word):
+      loc_ = cast(loc__Word, UP_location)
+      if loc_.w:
+        return word_.LeftMostSpanForWord(loc_.w)
+      else:
+        return runtime.NO_SPID
+
+    else:
+      raise AssertionError()
+
+  raise AssertionError()
 
 
 def SpanForCommand(node):
@@ -61,7 +101,7 @@ def SpanForCommand(node):
     return node.spids[0]  # do spid
   if tag == command_e.BraceGroup:
     node = cast(BraceGroup, UP_node)
-    return node.spids[0]  # { spid
+    return node.left.span_id  # { spid
   if tag == command_e.Subshell:
     node = cast(command__Subshell, UP_node)
     return node.spids[0]  # ( spid

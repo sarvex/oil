@@ -12,7 +12,7 @@ from pylib import os_path
 
 import posix_ as posix
 
-from typing import List, Any, Union, TYPE_CHECKING
+from typing import List, Union, TYPE_CHECKING
 if TYPE_CHECKING:
   from mycpp import mylib
 
@@ -21,14 +21,9 @@ if TYPE_CHECKING:
 _PUNCT = """!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
 
 
-def IsValidCharEscape(c):
-  # type: (int) -> bool
-  """Is this a valid character escape when unquoted?
-
-  Takes an integer because we want the C++ function to do so.
-  """
-  ch = chr(c)
-
+def IsValidCharEscape(ch):
+  # type: (str) -> bool
+  """Is this a valid character escape when unquoted?"""
   # These punctuation chars never needs to be escaped.  (Note that _ is a
   # keyword sometimes.)
   if ch == '/' or ch == '.' or ch == '-':
@@ -66,19 +61,6 @@ def BackslashEscape(s, meta_chars):
       escaped.append('\\')
     escaped.append(c)
   return ''.join(escaped)
-
-
-def stderr_line(msg, *args):
-  # type: (str, *Any) -> None
-  """Print a message to stderr for the user.
-
-  This should be used sparingly, since it doesn't have any location info.
-  Right now we use it to print fatal I/O errors that were only caught at the
-  top level.
-  """
-  if args:
-    msg = msg % args
-  print(msg, file=sys.stderr)
 
 
 def strerror(e):
