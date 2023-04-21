@@ -73,21 +73,17 @@ setglobal_compile_flags() {
     flags="$flags $env_flags"
   fi
 
-  # TODO: bumpleak and cheney should really be separate binaries like
-  # oils-for-unix.bumpleak.stripped, and mycpp/examples/strings.mycpp.bumpleak
+  # TODO: remove this section
   case $variant in
-    (bumpleak)
-      flags="$flags -D BUMP_LEAK"
+    opt+bumpleak|opt+bumproot)
       ;;
-    (bumproot)
-      flags="$flags -D BUMP_LEAK -D BUMP_ROOT"
-      ;;
-    (cheney)
+
+    cheney)
       flags="$flags -D CHENEY_GC"
       ;;
     (*)
       case $more_cxx_flags in  # make sure we don't already have a -D GC mode
-        (*BUMP_LEAK*|*CHENEY_GC*)
+        (*BUMP_*|*CHENEY_GC*)
           ;;
         (*)
           flags="$flags -D MARK_SWEEP"
@@ -96,16 +92,12 @@ setglobal_compile_flags() {
       ;;
   esac
 
+  #log "FLAGS $flags"
+
   case $variant in
-    (bumpleak|bumproot|cheney)
+    (cheney)
       # Make them optimized builds for now
       flags="$flags -O2 -g -D OPTIMIZED"
-      ;;
-    (bumpbig)
-      flags="$flags -O2 -g -D OPTIMIZED -D BUMP_ROOT -D BUMP_BIG"
-      ;;
-    (bumpsmall)
-      flags="$flags -O2 -g -D OPTIMIZED -D BUMP_ROOT -D BUMP_SMALL"
       ;;
 
     (dbg)
@@ -144,16 +136,11 @@ setglobal_compile_flags() {
       flags="$flags -g -D GC_ALWAYS -fsanitize=address -m32"
       ;;
 
-    # Just like GCEVERY
-    (rvroot)
-      flags="$flags -g -D RET_VAL_ROOTING -D GC_ALWAYS -fsanitize=address"
-      ;;
-
-    (opt)
-      flags="$flags -O2 -g -D OPTIMIZED"
-      ;;
-    (opt32)
+    (opt32*)
       flags="$flags -O2 -g -D OPTIMIZED -m32"
+      ;;
+    (opt*)
+      flags="$flags -O2 -g -D OPTIMIZED"
       ;;
 
     (tcmalloc)
@@ -171,13 +158,26 @@ setglobal_compile_flags() {
       flags="$flags $opt -g -pg"
       ;;
 
-    (alloclog)
-      # debug flags
-      flags="$flags -O0 -g -D DUMB_ALLOC -D ALLOC_LOG"
-      ;;
-
     (*)
       die "Invalid variant $variant"
+      ;;
+  esac
+
+  # Application variant
+
+  case $variant in
+    *+bumpleak)
+      flags="$flags -D BUMP_LEAK"
+      ;;
+    *+bumproot)
+      flags="$flags -D BUMP_LEAK -D BUMP_ROOT"
+      ;;
+
+    *+bumpbig)
+      flags="$flags -D BUMP_ROOT -D BUMP_BIG"
+      ;;
+    *+bumpsmall)
+      flags="$flags -D BUMP_ROOT -D BUMP_SMALL"
       ;;
   esac
 

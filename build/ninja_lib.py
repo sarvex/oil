@@ -59,11 +59,11 @@ COMPILERS_VARIANTS = [
 ]
 
 GC_PERF_VARIANTS = [
-    ('cxx', 'bumpleak'),
-    ('cxx', 'bumproot'),
+    ('cxx', 'opt+bumpleak'),
+    ('cxx', 'opt+bumproot'),
 
-    ('cxx', 'bumpbig'),
-    ('cxx', 'bumpsmall'),
+    ('cxx', 'opt+bumpbig'),
+    ('cxx', 'opt+bumpsmall'),
 
     ('cxx', 'tcmalloc'),
 
