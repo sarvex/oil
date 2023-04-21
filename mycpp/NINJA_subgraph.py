@@ -49,9 +49,9 @@ def DefineTargets(ru):
       'mycpp/bump_leak_heap_test.cc',
       deps = ['//mycpp/runtime'],
       matrix = [
-        ('cxx', 'asan', '-D BUMP_LEAK'),
-        ('cxx', 'ubsan', '-D BUMP_LEAK'),
-        ('clang', 'coverage', '-D BUMP_LEAK'),
+        ('cxx', 'asan+bumpleak'),
+        ('cxx', 'ubsan+bumpleak'),
+        ('clang', 'coverage+bumpleak'),
       ],
       phony_prefix = 'mycpp-unit')
 

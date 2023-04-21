@@ -75,17 +75,17 @@ setglobal_compile_flags() {
 
   # TODO: remove this section
   case $variant in
-    opt+bumpleak|opt+bumproot)
+    *+bumpleak|*+bumproot)
       ;;
 
     cheney)
       flags="$flags -D CHENEY_GC"
       ;;
-    (*)
+    *)
       case $more_cxx_flags in  # make sure we don't already have a -D GC mode
-        (*BUMP_*|*CHENEY_GC*)
+        *CHENEY_GC*)
           ;;
-        (*)
+        *)
           flags="$flags -D MARK_SWEEP"
           ;;
       esac
@@ -113,10 +113,10 @@ setglobal_compile_flags() {
       flags="$flags -O0 -g -fprofile-instr-generate -fcoverage-mapping"
       ;;
 
-    (asan)
+    asan*)
       flags="$flags -O0 -g -fsanitize=address"
       ;;
-    (asan32)
+    asan32*)
       flags="$flags -O0 -g -fsanitize=address -m32"
       ;;
 
@@ -124,7 +124,7 @@ setglobal_compile_flags() {
       flags="$flags -O0 -g -fsanitize=thread"
       ;;
 
-    (ubsan)
+    ubsan*)
       # faster build with -O0
       flags="$flags -O0 -g -fsanitize=undefined"
       ;;
@@ -136,10 +136,10 @@ setglobal_compile_flags() {
       flags="$flags -g -D GC_ALWAYS -fsanitize=address -m32"
       ;;
 
-    (opt32*)
+    opt32*)
       flags="$flags -O2 -g -D OPTIMIZED -m32"
       ;;
-    (opt*)
+    opt*)
       flags="$flags -O2 -g -D OPTIMIZED"
       ;;
 
@@ -208,16 +208,16 @@ setglobal_link_flags() {
       ;;
 
     # Must REPEAT these flags, otherwise we lose sanitizers / coverage
-    asan32|gcalways32)
+    asan32*|gcalways32)
       link_flags='-fsanitize=address -m32'
       ;;
-    asan|gcalways)
+    asan*|gcalways)
       link_flags='-fsanitize=address'
       ;;
     tsan)
       link_flags='-fsanitize=thread'
       ;;
-    ubsan)
+    ubsan*)
       link_flags='-fsanitize=undefined'
       ;;
     coverage)
