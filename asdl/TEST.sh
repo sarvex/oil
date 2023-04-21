@@ -23,7 +23,7 @@ unit() {
   run-one-test 'asdl/gc_test' '' asan
   echo
 
-  run-one-test 'asdl/gc_test' '' gcalways
+  run-one-test 'asdl/gc_test' '' asan+gcalways
   echo
 }
 

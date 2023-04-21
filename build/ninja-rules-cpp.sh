@@ -132,14 +132,6 @@ setglobal_compile_flags() {
       flags="$flags $opt -g -pg"
       ;;
 
-
-    # TODO: move these to app variants
-    (gcalways)
-      flags="$flags -g -D GC_ALWAYS -fsanitize=address"
-      ;;
-    (gcalways32)
-      flags="$flags -g -D GC_ALWAYS -fsanitize=address -m32"
-      ;;
     (tcmalloc)
       flags="$flags -O2 -g -D TCMALLOC -D OPTIMIZED"
       ;;
@@ -152,6 +144,10 @@ setglobal_compile_flags() {
   # Application variant
 
   case $variant in
+    *+gcalways)
+      flags="$flags -D GC_ALWAYS"
+      ;;
+
     *+cheney)
       flags="$flags -D CHENEY_GC"
       ;;
@@ -188,8 +184,16 @@ setglobal_link_flags() {
   local variant=$1
 
   case $variant in
-    dbg32|opt32)
+    dbg32*|opt32*)
       link_flags='-m32'
+      ;;
+
+    # Must REPEAT these flags, otherwise we lose sanitizers / coverage
+    asan*)
+      link_flags='-fsanitize=address'
+      ;;
+    asan32*)
+      link_flags='-fsanitize=address -m32'
       ;;
 
     tcmalloc)
@@ -197,13 +201,6 @@ setglobal_link_flags() {
       link_flags='-ltcmalloc -Wl,-rpath,/usr/local/lib'
       ;;
 
-    # Must REPEAT these flags, otherwise we lose sanitizers / coverage
-    asan32*|gcalways32)
-      link_flags='-fsanitize=address -m32'
-      ;;
-    asan*|gcalways)
-      link_flags='-fsanitize=address'
-      ;;
     tsan)
       link_flags='-fsanitize=thread'
       ;;
@@ -217,7 +214,7 @@ setglobal_link_flags() {
 
   case $variant in
     # TODO: 32-bit variants can't handle -l readline right now.
-    dbg32|opt32|asan32|gcalways32)
+    dbg32*|opt32*|asan32*)
       ;;
 
     *)

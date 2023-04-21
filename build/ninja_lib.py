@@ -42,14 +42,12 @@ COMPILERS_VARIANTS = [
     ('cxx', 'dbg'),
     ('cxx', 'opt'),
     ('cxx', 'asan'),
-    ('cxx', 'gcalways'),  # with ASAN
+
+    ('cxx', 'asan+gcalways'),
+    ('cxx', 'asan32+gcalways'),
 
     ('cxx', 'ubsan'),
 
-    # Test correctness of 32 bit build
-    # Hm both cxx-asan32 and clang-asan32 produce link errors
-    #('cxx', 'asan32'),
-    ('cxx', 'gcalways32'),
 
     #('clang', 'asan'),
     ('clang', 'dbg'),  # compile-quickly
@@ -65,10 +63,10 @@ GC_PERF_VARIANTS = [
     ('cxx', 'opt+bumpbig'),
     ('cxx', 'opt+bumpsmall'),
 
-    ('cxx', 'tcmalloc'),
-
     # TODO: should be binary with different files
-    ('cxx', 'cheney'),
+    ('cxx', 'opt+cheney'),
+
+    ('cxx', 'tcmalloc'),
 
     # For tracing allocations, or debugging
     ('cxx', 'uftrace'),

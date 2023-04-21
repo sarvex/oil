@@ -202,7 +202,7 @@ def TranslatorSubgraph(ru, translator, ex):
   else:
     # pea just has one variant for now
     example_matrix = [
-        ('cxx', 'gcalways')
+        ('cxx', 'asan+gcalways')
     ]
 
   if translator == 'mycpp':
@@ -365,7 +365,7 @@ def NinjaGraph(ru):
 
       # minimal
       MATRIX = [
-          ('test', 'asan'),  # TODO: gcalways is better!
+          ('test', 'asan'),  # TODO: asan+gcalways is better!
           ('benchmark', 'opt'),
       ]
 

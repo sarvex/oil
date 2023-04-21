@@ -26,7 +26,7 @@ examples-variant() {
   ### Run all examples using a variant -- STATS only
 
   local compiler=${1:-cxx}
-  local variant=${2:-gcalways}
+  local variant=${2:-asan+gcalways}
   local do_benchmark=${3:-}
 
   banner "$0 examples-variant $compiler $variant"
@@ -100,13 +100,13 @@ examples-variant() {
 
 ex-gcalways() {
   local compiler=${1:-}
-  examples-variant "$compiler" gcalways
+  examples-variant "$compiler" asan+gcalways
 }
 
 # TOO SLOW to run.  It's garbage collecting all the time.
 ex-gcalways-bench() {
   local compiler=${1:-}
-  examples-variant "$compiler" gcalways '.BENCHMARK'
+  examples-variant "$compiler" asan+gcalways '.BENCHMARK'
 }
 
 ex-asan() {
@@ -115,7 +115,7 @@ ex-asan() {
 }
 
 # 2 of 18 tests failed: cartesian, parse
-# So it does not catch the 10 segfaults that 'gcalways' catches with a few
+# So it does not catch the 10 segfaults that 'asan+gcalways' catches with a few
 # iterations!
 ex-asan-bench() {
   local compiler=${1:-}
@@ -154,7 +154,7 @@ unit() {
   ### Run by test/cpp-unit.sh
 
   local compiler=${1:-cxx}
-  local variant=${2:-gcalways}
+  local variant=${2:-asan+gcalways}
 
   log ''
   log "$0 unit $compiler $variant"
@@ -258,10 +258,10 @@ test-runtime() {
   unit '' ubsan
 
   unit '' asan
-  unit '' gcalways
+  unit '' asan+gcalways
 
   if can-compile-32-bit; then
-    unit '' gcalways32  # ASAN on 32-bit
+    unit '' asan32+gcalways  # ASAN on 32-bit
   else
     log "Can't compile 32-bit binaries (gcc-multilib g++-multilib needed on Debian)"
   fi
@@ -277,7 +277,7 @@ test-translator() {
   examples-variant '' asan
 
   # Test with more collections
-  examples-variant '' gcalways
+  examples-variant '' asan+gcalways
 
   run-test-func test-invalid-examples _test/mycpp/test-invalid-examples.log
 
