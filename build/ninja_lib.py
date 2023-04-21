@@ -263,8 +263,8 @@ class Rules(object):
     self.n.build([out_bin], 'link', objects, variables=v)
     self.n.newline()
 
-    # Strip any .opt binariies
-    if variant in ('opt', 'opt32', 'bumpleak', 'bumproot'):
+    # Strip any .opt binaries
+    if variant.startswith('opt') or variant.startswith('opt32'):
       stripped = out_bin + '.stripped'
       symbols = out_bin + '.symbols'
       self.n.build([stripped, symbols], 'strip', [out_bin])

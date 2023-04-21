@@ -303,7 +303,7 @@ soil-run() {
 unit-test-coverage() {
   ### Invoked by Soil
 
-  local bin=_bin/clang-coverage-D_BUMP_LEAK/mycpp/bump_leak_heap_test
+  local bin=_bin/clang-coverage+bumpleak/mycpp/bump_leak_heap_test
   ninja $bin
   run-test-bin $bin
 
@@ -311,7 +311,7 @@ unit-test-coverage() {
 
   local out_dir=_test/clang-coverage/mycpp
   test/coverage.sh html-report $out_dir \
-    clang-coverage/mycpp clang-coverage-D_BUMP_LEAK/mycpp
+    clang-coverage/mycpp clang-coverage+bumpleak/mycpp
 }
 
 examples-coverage() {
