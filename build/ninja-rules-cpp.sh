@@ -83,23 +83,13 @@ setglobal_compile_flags() {
 
   #log "FLAGS $flags"
 
+  # Take care of config that affects ALL translation units
   case $variant in
-    (cheney)
-      # Make them optimized builds for now
-      flags="$flags -O2 -g -D OPTIMIZED"
-      ;;
-
-    (dbg)
+    dbg*)
       flags="$flags -O0 -g"
       ;;
-    (dbg32)
+    dbg32*)
       flags="$flags -O0 -g -m32"
-      ;;
-
-    (coverage)
-      # source-based coverage is more precise than say sanitizer-based
-      # https://clang.llvm.org/docs/SourceBasedCodeCoverage.html
-      flags="$flags -O0 -g -fprofile-instr-generate -fcoverage-mapping"
       ;;
 
     asan*)
@@ -109,7 +99,7 @@ setglobal_compile_flags() {
       flags="$flags -O0 -g -fsanitize=address -m32"
       ;;
 
-    (tsan)
+    tsan*)
       flags="$flags -O0 -g -fsanitize=thread"
       ;;
 
@@ -118,25 +108,20 @@ setglobal_compile_flags() {
       flags="$flags -O0 -g -fsanitize=undefined"
       ;;
 
-    (gcalways)
-      flags="$flags -g -D GC_ALWAYS -fsanitize=address"
-      ;;
-    (gcalways32)
-      flags="$flags -g -D GC_ALWAYS -fsanitize=address -m32"
-      ;;
-
-    opt32*)
-      flags="$flags -O2 -g -D OPTIMIZED -m32"
-      ;;
     opt*)
       flags="$flags -O2 -g -D OPTIMIZED"
       ;;
-
-    (tcmalloc)
-      flags="$flags -O2 -g -D TCMALLOC -D OPTIMIZED"
+    opt32*)
+      flags="$flags -O2 -g -D OPTIMIZED -m32"
       ;;
 
-    (uftrace)
+    coverage*)
+      # source-based coverage is more precise than say sanitizer-based
+      # https://clang.llvm.org/docs/SourceBasedCodeCoverage.html
+      flags="$flags -O0 -g -fprofile-instr-generate -fcoverage-mapping"
+      ;;
+
+    uftrace*)
       # -O0 creates a A LOT more data.  But sometimes we want to see the
       # structure of the code.
       # NewStr(), OverAllocatedStr(), StrFromC() etc. are not inlined
@@ -145,6 +130,18 @@ setglobal_compile_flags() {
       local opt='-O0'
       #local opt='-O2'
       flags="$flags $opt -g -pg"
+      ;;
+
+
+    # TODO: move these to app variants
+    (gcalways)
+      flags="$flags -g -D GC_ALWAYS -fsanitize=address"
+      ;;
+    (gcalways32)
+      flags="$flags -g -D GC_ALWAYS -fsanitize=address -m32"
+      ;;
+    (tcmalloc)
+      flags="$flags -O2 -g -D TCMALLOC -D OPTIMIZED"
       ;;
 
     (*)
