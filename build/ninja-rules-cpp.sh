@@ -207,7 +207,7 @@ setglobal_link_flags() {
     ubsan*)
       link_flags='-fsanitize=undefined'
       ;;
-    coverage)
+    coverage*)
       link_flags='-fprofile-instr-generate -fcoverage-mapping'
       ;;
   esac
