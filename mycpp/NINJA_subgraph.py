@@ -25,9 +25,9 @@ def DefineTargets(ru):
       'mycpp/cheney_heap_test.cc',
       deps = ['//mycpp/cheney_heap'],
       matrix = [
-        ('cxx', 'asan', '-D CHENEY_GC'),
-        ('cxx', 'ubsan', '-D CHENEY_GC'),
-        ('clang', 'coverage', '-D CHENEY_GC'),
+        ('cxx', 'asan+cheney'),
+        ('cxx', 'ubsan+cheney'),
+        ('clang', 'coverage+cheney'),
       ],
       phony_prefix = 'mycpp-unit')
 

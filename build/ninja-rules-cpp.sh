@@ -73,22 +73,11 @@ setglobal_compile_flags() {
     flags="$flags $env_flags"
   fi
 
-  # TODO: remove this section
   case $variant in
-    *+bumpleak|*+bumproot)
-      ;;
-
-    cheney)
-      flags="$flags -D CHENEY_GC"
+    *+bumpleak|*+bumproot|*+cheney)
       ;;
     *)
-      case $more_cxx_flags in  # make sure we don't already have a -D GC mode
-        *CHENEY_GC*)
-          ;;
-        *)
-          flags="$flags -D MARK_SWEEP"
-          ;;
-      esac
+      flags="$flags -D MARK_SWEEP"
       ;;
   esac
 
@@ -166,6 +155,10 @@ setglobal_compile_flags() {
   # Application variant
 
   case $variant in
+    *+cheney)
+      flags="$flags -D CHENEY_GC"
+      ;;
+
     *+bumpleak)
       flags="$flags -D BUMP_LEAK"
       ;;
