@@ -12,7 +12,7 @@ def url2pathname(url):
     import string, urllib
     # Windows itself uses ":" even in URLs.
     url = url.replace(':', '|')
-    if not '|' in url:
+    if '|' not in url:
         # No drive specifier, just convert slashes
         if url[:4] == '////':
             # path is something like ////host/path/on/remote/host
@@ -24,10 +24,10 @@ def url2pathname(url):
         return urllib.unquote('\\'.join(components))
     comp = url.split('|')
     if len(comp) != 2 or comp[0][-1] not in string.ascii_letters:
-        error = 'Bad URL: ' + url
+        error = f'Bad URL: {url}'
         raise IOError, error
     drive = comp[0][-1].upper()
-    path = drive + ':'
+    path = f'{drive}:'
     components = comp[1].split('/')
     for comp in components:
         if comp:
@@ -45,7 +45,7 @@ def pathname2url(p):
     # becomes
     #   ///C:/foo/bar/spam.foo
     import urllib
-    if not ':' in p:
+    if ':' not in p:
         # No drive specifier, just convert slashes and quote the name
         if p[:2] == '\\\\':
         # path is something like \\host\path\on\remote\host
@@ -56,13 +56,13 @@ def pathname2url(p):
         return urllib.quote('/'.join(components))
     comp = p.split(':')
     if len(comp) != 2 or len(comp[0]) > 1:
-        error = 'Bad path: ' + p
+        error = f'Bad path: {p}'
         raise IOError, error
 
     drive = urllib.quote(comp[0].upper())
     components = comp[1].split('\\')
-    path = '///' + drive + ':'
+    path = f'///{drive}:'
     for comp in components:
         if comp:
-            path = path + '/' + urllib.quote(comp)
+            path = f'{path}/{urllib.quote(comp)}'
     return path

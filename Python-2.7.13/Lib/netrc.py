@@ -18,7 +18,7 @@ class NetrcParseError(Exception):
         Exception.__init__(self, msg)
 
     def __str__(self):
-        return "%s (%s, line %s)" % (self.msg, self.filename, self.lineno)
+        return f"{self.msg} ({self.filename}, line {self.lineno})"
 
 
 class netrc:
@@ -69,24 +69,23 @@ class netrc:
                 raise NetrcParseError(
                     "bad toplevel token %r" % tt, file, lexer.lineno)
 
-            # We're looking at start of an entry for a named machine or default.
-            login = ''
             account = password = None
             self.hosts[entryname] = {}
+            login = ''
             while 1:
                 tt = lexer.get_token()
                 if (tt.startswith('#') or
                     tt in {'', 'machine', 'default', 'macdef'}):
-                    if password:
-                        self.hosts[entryname] = (login, account, password)
-                        lexer.push_token(tt)
-                        break
-                    else:
+                    if not password:
                         raise NetrcParseError(
-                            "malformed %s entry %s terminated by %s"
-                            % (toplevel, entryname, repr(tt)),
-                            file, lexer.lineno)
-                elif tt == 'login' or tt == 'user':
+                            f"malformed {toplevel} entry {entryname} terminated by {repr(tt)}",
+                            file,
+                            lexer.lineno,
+                        )
+                    self.hosts[entryname] = (login, account, password)
+                    lexer.push_token(tt)
+                    break
+                elif tt in ['login', 'user']:
                     login = lexer.get_token()
                 elif tt == 'account':
                     account = lexer.get_token()
@@ -97,15 +96,16 @@ class netrc:
                             try:
                                 fowner = pwd.getpwuid(prop.st_uid)[0]
                             except KeyError:
-                                fowner = 'uid %s' % prop.st_uid
+                                fowner = f'uid {prop.st_uid}'
                             try:
                                 user = pwd.getpwuid(os.getuid())[0]
                             except KeyError:
-                                user = 'uid %s' % os.getuid()
+                                user = f'uid {os.getuid()}'
                             raise NetrcParseError(
-                                ("~/.netrc file owner (%s) does not match"
-                                 " current user (%s)") % (fowner, user),
-                                file, lexer.lineno)
+                                f"~/.netrc file owner ({fowner}) does not match current user ({user})",
+                                file,
+                                lexer.lineno,
+                            )
                         if (prop.st_mode & (stat.S_IRWXG | stat.S_IRWXO)):
                             raise NetrcParseError(
                                "~/.netrc access too permissive: access"
@@ -130,12 +130,12 @@ class netrc:
         rep = ""
         for host in self.hosts.keys():
             attrs = self.hosts[host]
-            rep = rep + "machine "+ host + "\n\tlogin " + repr(attrs[0]) + "\n"
+            rep = f"{rep}machine {host}" + "\n\tlogin " + repr(attrs[0]) + "\n"
             if attrs[1]:
-                rep = rep + "account " + repr(attrs[1])
+                rep = f"{rep}account {repr(attrs[1])}"
             rep = rep + "\tpassword " + repr(attrs[2]) + "\n"
         for macro in self.macros.keys():
-            rep = rep + "macdef " + macro + "\n"
+            rep = f"{rep}macdef {macro}" + "\n"
             for line in self.macros[macro]:
                 rep = rep + line
             rep = rep + "\n"

@@ -24,9 +24,7 @@ def get_platform():
     if "_PYTHON_HOST_PLATFORM" in os.environ:
         return os.environ["_PYTHON_HOST_PLATFORM"]
     # Get value of sys.platform
-    if sys.platform.startswith('osf1'):
-        return 'osf1'
-    return sys.platform
+    return 'osf1' if sys.platform.startswith('osf1') else sys.platform
 host_platform = get_platform()
 
 # Were we compiled --with-pydebug or with #define Py_DEBUG?
@@ -49,11 +47,7 @@ def macosx_sdk_root():
     """
     cflags = sysconfig.get_config_var('CFLAGS')
     m = re.search(r'-isysroot\s+(\S+)', cflags)
-    if m is None:
-        sysroot = '/'
-    else:
-        sysroot = m.group(1)
-    return sysroot
+    return '/' if m is None else m[1]
 
 def is_macosx_sdk_path(path):
     """
@@ -116,25 +110,12 @@ def find_library_file(compiler, libname, std_dirs, paths):
         # Ensure path doesn't end with path separator
         p = p.rstrip(os.sep)
 
-        if host_platform == 'darwin' and is_macosx_sdk_path(p):
-            # Note that, as of Xcode 7, Apple SDKs may contain textual stub
-            # libraries with .tbd extensions rather than the normal .dylib
-            # shared libraries installed in /.  The Apple compiler tool
-            # chain handles this transparently but it can cause problems
-            # for programs that are being built with an SDK and searching
-            # for specific libraries.  Distutils find_library_file() now
-            # knows to also search for and return .tbd files.  But callers
-            # of find_library_file need to keep in mind that the base filename
-            # of the returned SDK library file might have a different extension
-            # from that of the library file installed on the running system,
-            # for example:
-            #   /Applications/Xcode.app/Contents/Developer/Platforms/
-            #       MacOSX.platform/Developer/SDKs/MacOSX10.11.sdk/
-            #       usr/lib/libedit.tbd
-            # vs
-            #   /usr/lib/libedit.dylib
-            if os.path.join(sysroot, p[1:]) == dirname:
-                return [ ]
+        if (
+            host_platform == 'darwin'
+            and is_macosx_sdk_path(p)
+            and os.path.join(sysroot, p[1:]) == dirname
+        ):
+            return [ ]
 
         if p == dirname:
             return [ ]
@@ -145,9 +126,12 @@ def find_library_file(compiler, libname, std_dirs, paths):
         # Ensure path doesn't end with path separator
         p = p.rstrip(os.sep)
 
-        if host_platform == 'darwin' and is_macosx_sdk_path(p):
-            if os.path.join(sysroot, p[1:]) == dirname:
-                return [ p ]
+        if (
+            host_platform == 'darwin'
+            and is_macosx_sdk_path(p)
+            and os.path.join(sysroot, p[1:]) == dirname
+        ):
+            return [ p ]
 
         if p == dirname:
             return [p]
@@ -167,7 +151,7 @@ def find_module_file(module, dirlist):
     if not list:
         return module
     if len(list) > 1:
-        log.info("WARNING: multiple copies of %s found"%module)
+        log.info(f"WARNING: multiple copies of {module} found")
     return os.path.join(list[0], module)
 
 class PyBuildExt(build_ext):
@@ -382,8 +366,7 @@ class PyBuildExt(build_ext):
         tmpfile = os.path.join(self.build_temp, 'multiarch')
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
-        ret = os.system(
-            '%s -print-multiarch > %s 2> /dev/null' % (cc, tmpfile))
+        ret = os.system(f'{cc} -print-multiarch > {tmpfile} 2> /dev/null')
         multiarch_path_component = ''
         try:
             if ret >> 8 == 0:
@@ -393,10 +376,13 @@ class PyBuildExt(build_ext):
             os.unlink(tmpfile)
 
         if multiarch_path_component != '':
-            add_dir_to_list(self.compiler.library_dirs,
-                            '/usr/lib/' + multiarch_path_component)
-            add_dir_to_list(self.compiler.include_dirs,
-                            '/usr/include/' + multiarch_path_component)
+            add_dir_to_list(
+                self.compiler.library_dirs, f'/usr/lib/{multiarch_path_component}'
+            )
+            add_dir_to_list(
+                self.compiler.include_dirs,
+                f'/usr/include/{multiarch_path_component}',
+            )
             return
 
         if not find_executable('dpkg-architecture'):
@@ -408,16 +394,20 @@ class PyBuildExt(build_ext):
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
         ret = os.system(
-            'dpkg-architecture %s -qDEB_HOST_MULTIARCH > %s 2> /dev/null' %
-            (opt, tmpfile))
+            f'dpkg-architecture {opt} -qDEB_HOST_MULTIARCH > {tmpfile} 2> /dev/null'
+        )
         try:
             if ret >> 8 == 0:
                 with open(tmpfile) as fp:
                     multiarch_path_component = fp.readline().strip()
-                add_dir_to_list(self.compiler.library_dirs,
-                                '/usr/lib/' + multiarch_path_component)
-                add_dir_to_list(self.compiler.include_dirs,
-                                '/usr/include/' + multiarch_path_component)
+                add_dir_to_list(
+                    self.compiler.library_dirs,
+                    f'/usr/lib/{multiarch_path_component}',
+                )
+                add_dir_to_list(
+                    self.compiler.include_dirs,
+                    f'/usr/include/{multiarch_path_component}',
+                )
         finally:
             os.unlink(tmpfile)
 
@@ -426,7 +416,7 @@ class PyBuildExt(build_ext):
         tmpfile = os.path.join(self.build_temp, 'gccpaths')
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
-        ret = os.system('%s -E -v - </dev/null 2>%s 1>/dev/null' % (gcc, tmpfile))
+        ret = os.system(f'{gcc} -E -v - </dev/null 2>{tmpfile} 1>/dev/null')
         is_gcc = False
         in_incdirs = False
         inc_dirs = []
@@ -434,7 +424,7 @@ class PyBuildExt(build_ext):
         try:
             if ret >> 8 == 0:
                 with open(tmpfile) as fp:
-                    for line in fp.readlines():
+                    for line in fp:
                         if line.startswith("gcc version"):
                             is_gcc = True
                         elif line.startswith("#include <...>"):
@@ -1813,11 +1803,10 @@ class PyBuildExt(build_ext):
 
             for fw in 'Tcl', 'Tk':
                 if is_macosx_sdk_path(F):
-                    if not exists(join(sysroot, F[1:], fw + '.framework')):
+                    if not exists(join(sysroot, F[1:], f'{fw}.framework')):
                         break
-                else:
-                    if not exists(join(F, fw + '.framework')):
-                        break
+                elif not exists(join(F, f'{fw}.framework')):
+                    break
             else:
                 # ok, F is now directory with both frameworks. Continure
                 # building
@@ -1832,9 +1821,7 @@ class PyBuildExt(build_ext):
         # the -F option to gcc, which specifies a framework lookup path.
         #
         include_dirs = [
-            join(F, fw + '.framework', H)
-            for fw in 'Tcl', 'Tk'
-            for H in 'Headers', 'Versions/Current/PrivateHeaders'
+            join(F, f'{fw}.framework', H) for fw in 'Tcl' for H in 'Headers'
         ]
 
         # For 8.4a2, the X11 headers are not included. Rather than include a
@@ -1849,9 +1836,11 @@ class PyBuildExt(build_ext):
         archs = re.findall('-arch\s+(\w+)', cflags)
 
         if is_macosx_sdk_path(F):
-            fp = os.popen("file %s/Tk.framework/Tk | grep 'for architecture'"%(os.path.join(sysroot, F[1:]),))
+            fp = os.popen(
+                f"file {os.path.join(sysroot, F[1:])}/Tk.framework/Tk | grep 'for architecture'"
+            )
         else:
-            fp = os.popen("file %s/Tk.framework/Tk | grep 'for architecture'"%(F,))
+            fp = os.popen(f"file {F}/Tk.framework/Tk | grep 'for architecture'")
 
         detected_archs = []
         for ln in fp:
@@ -1861,9 +1850,7 @@ class PyBuildExt(build_ext):
         fp.close()
 
         for a in detected_archs:
-            frameworks.append('-arch')
-            frameworks.append(a)
-
+            frameworks.extend(('-arch', a))
         ext = Extension('_tkinter', ['_tkinter.c', 'tkappinit.c'],
                         define_macros=[('WITH_APPINIT', 1)],
                         include_dirs = include_dirs,
@@ -1897,10 +1884,8 @@ class PyBuildExt(build_ext):
         tcllib = tklib = tcl_includes = tk_includes = None
         for version in ['8.6', '86', '8.5', '85', '8.4', '84', '8.3', '83',
                         '8.2', '82', '8.1', '81', '8.0', '80']:
-            tklib = self.compiler.find_library_file(lib_dirs,
-                                                        'tk' + version)
-            tcllib = self.compiler.find_library_file(lib_dirs,
-                                                         'tcl' + version)
+            tklib = self.compiler.find_library_file(lib_dirs, f'tk{version}')
+            tcllib = self.compiler.find_library_file(lib_dirs, f'tcl{version}')
             if tklib and tcllib:
                 # Exit the loop when we've found the Tcl/Tk libraries
                 break
@@ -1913,7 +1898,7 @@ class PyBuildExt(build_ext):
             if '.' not in dotversion and "bsd" in host_platform.lower():
                 # OpenBSD and FreeBSD use Tcl/Tk library names like libtcl83.a,
                 # but the include subdirs are named like .../include/tcl8.3.
-                dotversion = dotversion[:-1] + '.' + dotversion[-1]
+                dotversion = f'{dotversion[:-1]}.{dotversion[-1]}'
             tcl_include_sub = []
             tk_include_sub = []
             for dir in inc_dirs:
@@ -1930,7 +1915,10 @@ class PyBuildExt(build_ext):
 
         # OK... everything seems to be present for Tcl/Tk.
 
-        include_dirs = [] ; libs = [] ; defs = [] ; added_lib_dirs = []
+        include_dirs = []
+        libs = []
+        defs = []
+        added_lib_dirs = []
         for dir in tcl_includes + tk_includes:
             if dir not in include_dirs:
                 include_dirs.append(dir)
@@ -1941,8 +1929,7 @@ class PyBuildExt(build_ext):
             added_lib_dirs.append('/usr/openwin/lib')
         elif os.path.exists('/usr/X11R6/include'):
             include_dirs.append('/usr/X11R6/include')
-            added_lib_dirs.append('/usr/X11R6/lib64')
-            added_lib_dirs.append('/usr/X11R6/lib')
+            added_lib_dirs.extend(('/usr/X11R6/lib64', '/usr/X11R6/lib'))
         elif os.path.exists('/usr/X11R5/include'):
             include_dirs.append('/usr/X11R5/include')
             added_lib_dirs.append('/usr/X11R5/lib')
@@ -1967,10 +1954,7 @@ class PyBuildExt(build_ext):
             defs.append( ('WITH_BLT', 1) )
             libs.append('BLT')
 
-        # Add the Tcl/Tk libraries
-        libs.append('tk'+ version)
-        libs.append('tcl'+ version)
-
+        libs.extend((f'tk{version}', f'tcl{version}'))
         if host_platform in ['aix3', 'aix4']:
             libs.append('ld')
 
@@ -2087,13 +2071,9 @@ class PyBuildExt(build_ext):
         depends = ['_ctypes/ctypes.h']
 
         if host_platform == 'darwin':
-            sources.append('_ctypes/malloc_closure.c')
-            sources.append('_ctypes/darwin/dlfcn_simple.c')
+            sources.extend(('_ctypes/malloc_closure.c', '_ctypes/darwin/dlfcn_simple.c'))
             extra_compile_args.append('-DMACOSX')
             include_dirs.append('_ctypes/darwin')
-# XXX Is this still needed?
-##            extra_link_args.extend(['-read_only_relocs', 'warning'])
-
         elif host_platform == 'sunos5':
             # XXX This shouldn't be necessary; it appears that some
             # of the assembler code is non-PIC (i.e. it has relocations
@@ -2119,7 +2099,7 @@ class PyBuildExt(build_ext):
                              sources=['_ctypes/_ctypes_test.c'])
         self.extensions.extend([ext, ext_test])
 
-        if not '--with-system-ffi' in sysconfig.get_config_var("CONFIG_ARGS"):
+        if '--with-system-ffi' not in sysconfig.get_config_var("CONFIG_ARGS"):
             return
 
         if host_platform == 'darwin':
@@ -2131,7 +2111,7 @@ class PyBuildExt(build_ext):
         if not ffi_inc or ffi_inc[0] == '':
             ffi_inc = find_file('ffi.h', [], inc_dirs)
         if ffi_inc is not None:
-            ffi_h = ffi_inc[0] + '/ffi.h'
+            ffi_h = f'{ffi_inc[0]}/ffi.h'
             with open(ffi_h) as f:
                 for line in f:
                     line = line.strip()
@@ -2140,8 +2120,7 @@ class PyBuildExt(build_ext):
                         break
                 else:
                     ffi_inc = None
-                    print('Header file {} does not define LIBFFI_H or '
-                          'ffi_wrapper_h'.format(ffi_h))
+                    print(f'Header file {ffi_h} does not define LIBFFI_H or ffi_wrapper_h')
         ffi_lib = None
         if ffi_inc is not None:
             for lib_name in ('ffi_convenience', 'ffi_pic', 'ffi'):
@@ -2232,30 +2211,30 @@ def main():
     # turn off warnings when deprecated modules are imported
     import warnings
     warnings.filterwarnings("ignore",category=DeprecationWarning)
-    setup(# PyPI Metadata (PEP 301)
-          name = "Python",
-          version = sys.version.split()[0],
-          url = "http://www.python.org/%s" % sys.version[:3],
-          maintainer = "Guido van Rossum and the Python community",
-          maintainer_email = "python-dev@python.org",
-          description = "A high-level object-oriented programming language",
-          long_description = SUMMARY.strip(),
-          license = "PSF license",
-          classifiers = filter(None, CLASSIFIERS.split("\n")),
-          platforms = ["Many"],
-
-          # Build info
-          cmdclass = {'build_ext':PyBuildExt, 'install':PyBuildInstall,
-                      'install_lib':PyBuildInstallLib},
-          # The struct module is defined here, because build_ext won't be
-          # called unless there's at least one extension module defined.
-          ext_modules=[Extension('_struct', ['_struct.c'])],
-
-          # Scripts to install
-          scripts = ['Tools/scripts/pydoc', 'Tools/scripts/idle',
-                     'Tools/scripts/2to3',
-                     'Lib/smtpd.py']
-        )
+    setup(
+        name="Python",
+        version=sys.version.split()[0],
+        url=f"http://www.python.org/{sys.version[:3]}",
+        maintainer="Guido van Rossum and the Python community",
+        maintainer_email="python-dev@python.org",
+        description="A high-level object-oriented programming language",
+        long_description=SUMMARY.strip(),
+        license="PSF license",
+        classifiers=filter(None, CLASSIFIERS.split("\n")),
+        platforms=["Many"],
+        cmdclass={
+            'build_ext': PyBuildExt,
+            'install': PyBuildInstall,
+            'install_lib': PyBuildInstallLib,
+        },
+        ext_modules=[Extension('_struct', ['_struct.c'])],
+        scripts=[
+            'Tools/scripts/pydoc',
+            'Tools/scripts/idle',
+            'Tools/scripts/2to3',
+            'Lib/smtpd.py',
+        ],
+    )
 
 # --install-platlib
 if __name__ == '__main__':

@@ -48,20 +48,15 @@ class Message(rfc822.Message):
         self.subtype = '/'.join(fields[1:])
 
     def parseplist(self):
-        str = self.plisttext
         self.plist = []
+        str = self.plisttext
         while str[:1] == ';':
             str = str[1:]
-            if ';' in str:
-                # XXX Should parse quotes!
-                end = str.index(';')
-            else:
-                end = len(str)
+            end = str.index(';') if ';' in str else len(str)
             f = str[:end]
             if '=' in f:
                 i = f.index('=')
-                f = f[:i].strip().lower() + \
-                        '=' + f[i+1:].strip()
+                f = f'{f[:i].strip().lower()}={f[i + 1:].strip()}'
             self.plist.append(f.strip())
             str = str[end:]
 
@@ -69,12 +64,9 @@ class Message(rfc822.Message):
         return self.plist
 
     def getparam(self, name):
-        name = name.lower() + '='
+        name = f'{name.lower()}='
         n = len(name)
-        for p in self.plist:
-            if p[:n] == name:
-                return rfc822.unquote(p[n:])
-        return None
+        return next((rfc822.unquote(p[n:]) for p in self.plist if p[:n] == name), None)
 
     def getparamnames(self):
         result = []
@@ -85,9 +77,7 @@ class Message(rfc822.Message):
         return result
 
     def getencoding(self):
-        if self.encodingheader is None:
-            return '7bit'
-        return self.encodingheader.lower()
+        return '7bit' if self.encodingheader is None else self.encodingheader.lower()
 
     def gettype(self):
         return self.type
@@ -116,9 +106,8 @@ def _get_next_counter():
     global _counter
     _counter_lock.acquire()
     _counter += 1
-    result = _counter
     _counter_lock.release()
-    return result
+    return _counter
 
 _prefix = None
 
@@ -148,7 +137,7 @@ def choose_boundary():
             pid = repr(os.getpid())
         except AttributeError:
             pid = '1'
-        _prefix = hostid + '.' + uid + '.' + pid
+        _prefix = f'{hostid}.{uid}.{pid}'
     return "%s.%.3f.%d" % (_prefix, time.time(), _get_next_counter())
 
 
@@ -170,8 +159,7 @@ def decode(input, output, encoding):
     if encoding in decodetab:
         pipethrough(input, decodetab[encoding], output)
     else:
-        raise ValueError, \
-              'unknown Content-Transfer-Encoding: %s' % encoding
+        raise (ValueError, f'unknown Content-Transfer-Encoding: {encoding}')
 
 def encode(input, output, encoding):
     """Encode common content-transfer-encodings (base64, quopri, uuencode)."""
@@ -189,8 +177,7 @@ def encode(input, output, encoding):
     if encoding in encodetab:
         pipethrough(input, encodetab[encoding], output)
     else:
-        raise ValueError, \
-              'unknown Content-Transfer-Encoding: %s' % encoding
+        raise (ValueError, f'unknown Content-Transfer-Encoding: {encoding}')
 
 # The following is no longer used for standard encodings
 
@@ -231,20 +218,22 @@ def pipethrough(input, command, output):
     temp = os.fdopen(fd, 'w')
     copyliteral(input, temp)
     temp.close()
-    pipe = os.popen(command + ' <' + tempname, 'r')
+    pipe = os.popen(f'{command} <{tempname}', 'r')
     copybinary(pipe, output)
     pipe.close()
     os.unlink(tempname)
 
 def copyliteral(input, output):
     while 1:
-        line = input.readline()
-        if not line: break
-        output.write(line)
+        if line := input.readline():
+            output.write(line)
+        else:
+            break
 
 def copybinary(input, output):
     BUFSIZE = 8192
     while 1:
-        line = input.read(BUFSIZE)
-        if not line: break
-        output.write(line)
+        if line := input.read(BUFSIZE):
+            output.write(line)
+        else:
+            break

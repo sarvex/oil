@@ -51,9 +51,7 @@ class MultiFile:
             self.posstack = []
 
     def tell(self):
-        if self.level > 0:
-            return self.lastpos
-        return self.fp.tell() - self.start
+        return self.lastpos if self.level > 0 else self.fp.tell() - self.start
 
     def seek(self, pos, whence=0):
         here = self.tell()
@@ -112,9 +110,10 @@ class MultiFile:
     def readlines(self):
         list = []
         while 1:
-            line = self.readline()
-            if not line: break
-            list.append(line)
+            if line := self.readline():
+                list.append(line)
+            else:
+                break
         return list
 
     def read(self): # Note: no size argument -- read until EOF only!
@@ -156,7 +155,7 @@ class MultiFile:
         return line[:2] != '--'
 
     def section_divider(self, str):
-        return "--" + str
+        return f"--{str}"
 
     def end_marker(self, str):
-        return "--" + str + "--"
+        return f"--{str}--"

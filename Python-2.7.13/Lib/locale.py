@@ -229,8 +229,8 @@ def format_string(f, val, grouping=False):
     percents = list(_percent_re.finditer(f))
     new_f = _percent_re.sub('%s', f)
 
+    new_val = []
     if operator.isMappingType(val):
-        new_val = []
         for perc in percents:
             if perc.group()[-1]=='%':
                 new_val.append('%')
@@ -239,7 +239,6 @@ def format_string(f, val, grouping=False):
     else:
         if not isinstance(val, tuple):
             val = (val,)
-        new_val = []
         i = 0
         for perc in percents:
             if perc.group()[-1]=='%':
@@ -269,7 +268,7 @@ def currency(val, symbol=True, grouping=False, international=False):
 
     s = format('%%.%if' % digits, abs(val), grouping, monetary=True)
     # '<' and '>' are markers if the sign must be inserted between symbol and value
-    s = '<' + s + '>'
+    s = f'<{s}>'
 
     if symbol:
         smb = conv[international and 'int_curr_symbol' or 'currency_symbol']
@@ -285,9 +284,7 @@ def currency(val, symbol=True, grouping=False, international=False):
     sign = conv[val<0 and 'negative_sign' or 'positive_sign']
 
     if sign_pos == 0:
-        s = '(' + s + ')'
-    elif sign_pos == 1:
-        s = sign + s
+        s = f'({s})'
     elif sign_pos == 2:
         s = s + sign
     elif sign_pos == 3:
@@ -307,13 +304,9 @@ def str(val):
 
 def atof(string, func=float):
     "Parses a string as a float according to the locale settings."
-    #First, get rid of the grouping
-    ts = localeconv()['thousands_sep']
-    if ts:
+    if ts := localeconv()['thousands_sep']:
         string = string.replace(ts, '')
-    #next, replace the decimal point with a dot
-    dd = localeconv()['decimal_point']
-    if dd:
+    if dd := localeconv()['decimal_point']:
         string = string.replace(dd, '.')
     #finally, parse the string
     return func(string)
@@ -348,10 +341,7 @@ _ascii_lower_map = ''.join(
 )
 
 def _replace_encoding(code, encoding):
-    if '.' in code:
-        langname = code[:code.index('.')]
-    else:
-        langname = code
+    langname = code[:code.index('.')] if '.' in code else code
     # Convert the encoding to a C lib compatible encoding string
     norm_encoding = encodings.normalize_encoding(encoding)
     #print('norm encoding: %r' % norm_encoding)
@@ -361,7 +351,7 @@ def _replace_encoding(code, encoding):
     encoding = locale_encoding_alias.get(norm_encoding,
                                          norm_encoding)
     #print('found encoding %r' % encoding)
-    return langname + '.' + encoding
+    return f'{langname}.{encoding}'
 
 def normalize(localename):
 
@@ -401,10 +391,10 @@ def normalize(localename):
     if encoding:
         norm_encoding = encoding.replace('-', '')
         norm_encoding = norm_encoding.replace('_', '')
-        lang_enc += '.' + norm_encoding
+        lang_enc += f'.{norm_encoding}'
     lookup_name = lang_enc
     if modifier:
-        lookup_name += '@' + modifier
+        lookup_name += f'@{modifier}'
     code = locale_alias.get(lookup_name, None)
     if code is not None:
         return code
@@ -416,23 +406,23 @@ def normalize(localename):
         if code is not None:
             #print('lookup without modifier succeeded')
             if '@' not in code:
-                return code + '@' + modifier
+                return f'{code}@{modifier}'
             if code.split('@', 1)[1].translate(_ascii_lower_map) == modifier:
                 return code
-        #print('second lookup failed')
+            #print('second lookup failed')
 
     if encoding:
         # Third try: langname (without encoding, possibly with modifier)
         lookup_name = langname
         if modifier:
-            lookup_name += '@' + modifier
+            lookup_name += f'@{modifier}'
         code = locale_alias.get(lookup_name, None)
         if code is not None:
             #print('lookup without encoding succeeded')
             if '@' not in code:
                 return _replace_encoding(code, encoding)
             code, modifier = code.split('@', 1)
-            return _replace_encoding(code, encoding) + '@' + modifier
+            return f'{_replace_encoding(code, encoding)}@{modifier}'
 
         if modifier:
             # Fourth try: langname (without encoding and modifier)
@@ -440,10 +430,10 @@ def normalize(localename):
             if code is not None:
                 #print('lookup without modifier and encoding succeeded')
                 if '@' not in code:
-                    return _replace_encoding(code, encoding) + '@' + modifier
+                    return f'{_replace_encoding(code, encoding)}@{modifier}'
                 code, defmod = code.split('@', 1)
                 if defmod.translate(_ascii_lower_map) == modifier:
-                    return _replace_encoding(code, encoding) + '@' + defmod
+                    return f'{_replace_encoding(code, encoding)}@{defmod}'
 
     return localename
 
@@ -475,7 +465,7 @@ def _parse_localename(localename):
         return tuple(code.split('.')[:2])
     elif code == 'C':
         return None, None
-    raise ValueError, 'unknown locale: %s' % localename
+    raise (ValueError, f'unknown locale: {localename}')
 
 def _build_localename(localetuple):
 
@@ -488,10 +478,7 @@ def _build_localename(localetuple):
     language, encoding = localetuple
     if language is None:
         language = 'C'
-    if encoding is None:
-        return language
-    else:
-        return language + '.' + encoding
+    return language if encoding is None else f'{language}.{encoding}'
 
 def getdefaultlocale(envvars=('LC_ALL', 'LC_CTYPE', 'LANG', 'LANGUAGE')):
 
@@ -611,17 +598,16 @@ else:
         def getpreferredencoding(do_setlocale = True):
             """Return the charset that the user is likely using,
             according to the system configuration."""
-            if do_setlocale:
-                oldloc = setlocale(LC_CTYPE)
-                try:
-                    setlocale(LC_CTYPE, "")
-                except Error:
-                    pass
-                result = nl_langinfo(CODESET)
-                setlocale(LC_CTYPE, oldloc)
-                return result
-            else:
+            if not do_setlocale:
                 return nl_langinfo(CODESET)
+            oldloc = setlocale(LC_CTYPE)
+            try:
+                setlocale(LC_CTYPE, "")
+            except Error:
+                pass
+            result = nl_langinfo(CODESET)
+            setlocale(LC_CTYPE, oldloc)
+            return result
 
 
 ### Database

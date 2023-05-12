@@ -82,25 +82,20 @@ class Pdb(bdb.Bdb, cmd.Cmd):
             except IOError:
                 pass
             else:
-                for line in rcFile.readlines():
-                    self.rcLines.append(line)
+                self.rcLines.extend(iter(rcFile))
                 rcFile.close()
         try:
             rcFile = open(".pdbrc")
         except IOError:
             pass
         else:
-            for line in rcFile.readlines():
-                self.rcLines.append(line)
+            self.rcLines.extend(iter(rcFile))
             rcFile.close()
 
         self.commands = {} # associates a command list to breakpoint numbers
         self.commands_doprompt = {} # for each bp num, tells if the prompt
-                                    # must be disp. after execing the cmd list
         self.commands_silent = {} # for each bp num, tells if the stack trace
-                                  # must be disp. after execing the cmd list
         self.commands_defining = False # True while in the process of defining
-                                       # a command list
         self.commands_bnum = None # The breakpoint number for which we are
                                   # defining a list
 
@@ -164,22 +159,24 @@ class Pdb(bdb.Bdb, cmd.Cmd):
         Returns True if the normal interaction function must be called,
         False otherwise."""
         # self.currentbp is set in bdb in Bdb.break_here if a breakpoint was hit
-        if getattr(self, "currentbp", False) and \
-               self.currentbp in self.commands:
-            currentbp = self.currentbp
-            self.currentbp = 0
-            lastcmd_back = self.lastcmd
-            self.setup(frame, None)
-            for line in self.commands[currentbp]:
-                self.onecmd(line)
-            self.lastcmd = lastcmd_back
-            if not self.commands_silent[currentbp]:
-                self.print_stack_entry(self.stack[self.curindex])
-            if self.commands_doprompt[currentbp]:
-                self.cmdloop()
-            self.forget()
-            return
-        return 1
+        if (
+            not getattr(self, "currentbp", False)
+            or self.currentbp not in self.commands
+        ):
+            return 1
+        currentbp = self.currentbp
+        self.currentbp = 0
+        lastcmd_back = self.lastcmd
+        self.setup(frame, None)
+        for line in self.commands[currentbp]:
+            self.onecmd(line)
+        self.lastcmd = lastcmd_back
+        if not self.commands_silent[currentbp]:
+            self.print_stack_entry(self.stack[self.curindex])
+        if self.commands_doprompt[currentbp]:
+            self.cmdloop()
+        self.forget()
+        return
 
     def user_return(self, frame, return_value):
         """This function is called when a return trap is set here."""
@@ -252,8 +249,7 @@ class Pdb(bdb.Bdb, cmd.Cmd):
             line = self.aliases[args[0]]
             ii = 1
             for tmpArg in args[1:]:
-                line = line.replace("%" + str(ii),
-                                      tmpArg)
+                line = line.replace(f"%{str(ii)}", tmpArg)
                 ii = ii + 1
             line = line.replace("%*", ' '.join(args[1:]))
             args = line.split()
@@ -285,20 +281,20 @@ class Pdb(bdb.Bdb, cmd.Cmd):
         cmd, arg, line = self.parseline(line)
         if not cmd:
             return
-        if cmd == 'silent':
-            self.commands_silent[self.commands_bnum] = True
-            return # continue to handle other cmd def in the cmd list
-        elif cmd == 'end':
+        if cmd == 'end':
             self.cmdqueue = []
             return 1 # end of cmd list
+        elif cmd == 'silent':
+            self.commands_silent[self.commands_bnum] = True
+            return # continue to handle other cmd def in the cmd list
         cmdlist = self.commands[self.commands_bnum]
         if arg:
-            cmdlist.append(cmd+' '+arg)
+            cmdlist.append(f'{cmd} {arg}')
         else:
             cmdlist.append(cmd)
         # Determine if we must stop
         try:
-            func = getattr(self, 'do_' + cmd)
+            func = getattr(self, f'do_{cmd}')
         except AttributeError:
             func = self.default
         # one of the resuming commands
@@ -460,10 +456,7 @@ class Pdb(bdb.Bdb, cmd.Cmd):
         if len(parts) == 1:
             item = parts[0]
         else:
-            # More than one part.
-            # First is module, second is method/class
-            f = self.lookupmodule(parts[0])
-            if f:
+            if f := self.lookupmodule(parts[0]):
                 fname = f
             item = parts[1]
         answer = find_function(item, fname)
@@ -673,7 +666,7 @@ class Pdb(bdb.Bdb, cmd.Cmd):
         debugger loop.  If arguments were given, set them in sys.argv."""
         if arg:
             import shlex
-            argv0 = sys.argv[0:1]
+            argv0 = sys.argv[:1]
             sys.argv = shlex.split(arg)
             sys.argv[:0] = argv0
         raise Restart
@@ -1197,7 +1190,7 @@ see no sign that the breakpoint was reached.
             return f
         root, ext = os.path.splitext(filename)
         if ext == '':
-            filename = filename + '.py'
+            filename = f'{filename}.py'
         if os.path.isabs(filename):
             return filename
         for dirname in sys.path:
@@ -1258,9 +1251,9 @@ def post_mortem(t=None):
         # sys.exc_info() returns (type, value, traceback) if an exception is
         # being handled, otherwise it returns None
         t = sys.exc_info()[2]
-        if t is None:
-            raise ValueError("A valid traceback must be passed if no "
-                                               "exception is being handled")
+    if t is None:
+        raise ValueError("A valid traceback must be passed if no "
+                                           "exception is being handled")
 
     p = Pdb()
     p.reset()

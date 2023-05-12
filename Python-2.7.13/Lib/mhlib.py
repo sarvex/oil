@@ -137,9 +137,8 @@ class MH:
     def setcontext(self, context):
         """Set the name of the current folder."""
         fn = os.path.join(self.getpath(), 'context')
-        f = open(fn, "w")
-        f.write("Current-Folder: %s\n" % context)
-        f.close()
+        with open(fn, "w") as f:
+            f.write("Current-Folder: %s\n" % context)
 
     def listfolders(self):
         """Return the names of the top-level folders."""
@@ -215,10 +214,7 @@ class MH:
     def makefolder(self, name):
         """Create a new folder (or raise os.error if it cannot be created)."""
         protect = pickline(self.profile, 'Folder-Protect')
-        if protect and isnumeric(protect):
-            mode = int(protect, 8)
-        else:
-            mode = FOLDER_PROTECT
+        mode = int(protect, 8) if protect and isnumeric(protect) else FOLDER_PROTECT
         os.mkdir(os.path.join(self.getpath(), name), mode)
 
     def deletefolder(self, name):
@@ -230,8 +226,7 @@ class MH:
             try:
                 os.unlink(fullsubname)
             except os.error:
-                self.error('%s not deleted, continuing...' %
-                          fullsubname)
+                self.error(f'{fullsubname} not deleted, continuing...')
         os.rmdir(fullname)
 
 
@@ -247,7 +242,7 @@ class Folder:
         self.mh = mh
         self.name = name
         if not os.path.isdir(self.getfullname()):
-            raise Error, 'no folder %s' % name
+            raise (Error, f'no folder {name}')
 
     def __repr__(self):
         """String representation."""
@@ -288,10 +283,7 @@ class Folder:
                 append(name)
         messages = map(int, messages)
         messages.sort()
-        if messages:
-            self.last = messages[-1]
-        else:
-            self.last = 0
+        self.last = messages[-1] if messages else 0
         return messages
 
     def getsequences(self):
@@ -307,8 +299,7 @@ class Folder:
             if not line: break
             fields = line.split(':')
             if len(fields) != 2:
-                self.error('bad sequence in %s: %s' %
-                          (fullname, line.strip()))
+                self.error(f'bad sequence in {fullname}: {line.strip()}')
             key = fields[0].strip()
             value = IntSet(fields[1].strip(), ' ').tolist()
             sequences[key] = value
@@ -612,13 +603,12 @@ class Folder:
         ok = 0
         BUFSIZE = 16*1024
         try:
-            f = open(path, "w")
-            while 1:
-                buf = txt.read(BUFSIZE)
-                if not buf:
-                    break
-                f.write(buf)
-            f.close()
+            with open(path, "w") as f:
+                while 1:
+                    if buf := txt.read(BUFSIZE):
+                        f.write(buf)
+                    else:
+                        break
             ok = 1
         finally:
             if not ok:
@@ -673,7 +663,7 @@ class Message(mimetools.Message):
 
     def __repr__(self):
         """String representation."""
-        return 'Message(%s, %s)' % (repr(self.folder), self.number)
+        return f'Message({repr(self.folder)}, {self.number})'
 
     def getheadertext(self, pred = None):
         """Return the message's header text as a string.  If an
@@ -752,7 +742,7 @@ class SubMessage(Message):
     def __repr__(self):
         """String representation."""
         f, n, fp = self.folder, self.number, self.fp
-        return 'SubMessage(%s, %s, %s)' % (f, n, fp)
+        return f'SubMessage({f}, {n}, {fp})'
 
     def getbodytext(self, decode = 1):
         if not decode:
@@ -818,15 +808,13 @@ class IntSet:
             if ahi >= blo-1:
                 self.pairs[i-1:i+1] = [(alo, max(ahi, bhi))]
             else:
-                i = i+1
+                i += 1
 
     def tostring(self):
         s = ''
         for lo, hi in self.pairs:
-            if lo == hi: t = repr(lo)
-            else: t = repr(lo) + self.rng + repr(hi)
-            if s: s = s + (self.sep + t)
-            else: s = t
+            t = repr(lo) if lo == hi else repr(lo) + self.rng + repr(hi)
+            s = s + (self.sep + t) if s else t
         return s
 
     def tolist(self):
@@ -852,9 +840,7 @@ class IntSet:
         return self.pairs[-1][-1]
 
     def contains(self, x):
-        for lo, hi in self.pairs:
-            if lo <= x <= hi: return True
-        return False
+        return any(lo <= x <= hi for lo, hi in self.pairs)
 
     def append(self, x):
         for i in range(len(self.pairs)):
@@ -910,7 +896,7 @@ def pickline(file, key, casefold = 1):
         f = open(file, 'r')
     except IOError:
         return None
-    pat = re.escape(key) + ':'
+    pat = f'{re.escape(key)}:'
     prog = re.compile(pat, casefold and re.IGNORECASE)
     while 1:
         line = f.readline()
@@ -927,17 +913,13 @@ def pickline(file, key, casefold = 1):
 
 def updateline(file, key, value, casefold = 1):
     try:
-        f = open(file, 'r')
-        lines = f.readlines()
-        f.close()
+        with open(file, 'r') as f:
+            lines = f.readlines()
     except IOError:
         lines = []
     pat = re.escape(key) + ':(.*)\n'
     prog = re.compile(pat, casefold and re.IGNORECASE)
-    if value is None:
-        newline = None
-    else:
-        newline = '%s: %s\n' % (key, value)
+    newline = None if value is None else '%s: %s\n' % (key, value)
     for i in range(len(lines)):
         line = lines[i]
         if prog.match(line):
@@ -949,11 +931,10 @@ def updateline(file, key, value, casefold = 1):
     else:
         if newline is not None:
             lines.append(newline)
-    tempfile = file + "~"
-    f = open(tempfile, 'w')
-    for line in lines:
-        f.write(line)
-    f.close()
+    tempfile = f"{file}~"
+    with open(tempfile, 'w') as f:
+        for line in lines:
+            f.write(line)
     os.rename(tempfile, file)
 
 

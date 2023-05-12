@@ -85,8 +85,7 @@ class HeaderFile:
             return line
         while 1:
             self.peek = self.file.readline()
-            if len(self.peek) == 0 or \
-               (self.peek[0] != ' ' and self.peek[0] != '\t'):
+            if len(self.peek) == 0 or self.peek[0] not in [' ', '\t']:
                 return line
             line = line + self.peek
             self.peek = None
@@ -125,11 +124,7 @@ def unmimify_part(ifile, ofile, decode_base64 = 0):
     quoted_printable = 0
     is_base64 = 0
     is_repl = 0
-    if ifile.boundary and ifile.boundary[:2] == QUOTE:
-        prefix = QUOTE
-    else:
-        prefix = ''
-
+    prefix = QUOTE if ifile.boundary and ifile.boundary[:2] == QUOTE else ''
     # read header
     hfile = HeaderFile(ifile)
     while 1:
@@ -152,9 +147,8 @@ def unmimify_part(ifile, ofile, decode_base64 = 0):
         if not prefix and repl.match(line):
             # we're dealing with a reply message
             is_repl = 1
-        mp_res = mp.match(line)
-        if mp_res:
-            multipart = '--' + mp_res.group(1)
+        if mp_res := mp.match(line):
+            multipart = f'--{mp_res.group(1)}'
         if he.match(line):
             break
     if is_repl and (quoted_printable or multipart):
@@ -211,13 +205,10 @@ def unmimify(infile, outfile, decode_base64 = 0):
         if type(outfile) == type('') and infile == outfile:
             import os
             d, f = os.path.split(infile)
-            os.rename(infile, os.path.join(d, ',' + f))
+            os.rename(infile, os.path.join(d, f',{f}'))
     else:
         ifile = infile
-    if type(outfile) == type(''):
-        ofile = open(outfile, 'w')
-    else:
-        ofile = outfile
+    ofile = open(outfile, 'w') if type(outfile) == type('') else outfile
     nifile = File(ifile, None)
     unmimify_part(nifile, ofile, decode_base64)
     ofile.flush()
@@ -228,10 +219,7 @@ mime_header_char = re.compile('[=?\177-\377]') # quote these in header
 def mime_encode(line, header):
     """Code a single line as quoted-printable.
     If header is set, quote some extra characters."""
-    if header:
-        reg = mime_header_char
-    else:
-        reg = mime_char
+    reg = mime_header_char if header else mime_char
     newline = ''
     pos = 0
     if len(line) >= 5 and line[:5] == 'From ':
@@ -251,8 +239,8 @@ def mime_encode(line, header):
     while len(line) >= 75:
         i = 73
         while line[i] == '=' or line[i-1] == '=':
-            i = i - 1
-        i = i + 1
+            i -= 1
+        i += 1
         newline = newline + line[:i] + '=\n'
         line = line[i:]
     return newline + line
@@ -267,9 +255,7 @@ def mime_encode_header(line):
         res = mime_header.search(line, pos)
         if res is None:
             break
-        newline = '%s%s%s=?%s?Q?%s?=' % \
-                  (newline, line[pos:res.start(0)], res.group(1),
-                   CHARSET, mime_encode(res.group(2), 1))
+        newline = f'{newline}{line[pos:res.start(0)]}{res.group(1)}=?{CHARSET}?Q?{mime_encode(res.group(2), 1)}?='
         pos = res.end(0)
     return newline + line[pos:]
 
@@ -303,9 +289,8 @@ def mimify_part(ifile, ofile, is_mime):
                 is_qp = 1
             elif base64_re.match(line):
                 is_base64 = 1
-        mp_res = mp.match(line)
-        if mp_res:
-            multipart = '--' + mp_res.group(1)
+        if mp_res := mp.match(line):
+            multipart = f'--{mp_res.group(1)}'
         if he.match(line):
             header_end = line
             break
@@ -335,36 +320,31 @@ def mimify_part(ifile, ofile, is_mime):
                 line = line + newline
             line = mime_decode(line)
         message.append(line)
-        if not has_iso_chars:
-            if iso_char.search(line):
-                has_iso_chars = must_quote_body = 1
-        if not must_quote_body:
-            if len(line) > MAXLEN:
-                must_quote_body = 1
+        if not has_iso_chars and iso_char.search(line):
+            has_iso_chars = must_quote_body = 1
+        if not must_quote_body and len(line) > MAXLEN:
+            must_quote_body = 1
 
     # convert and output header and body
     for line in header:
         if must_quote_header:
             line = mime_encode_header(line)
-        chrset_res = chrset.match(line)
-        if chrset_res:
+        if chrset_res := chrset.match(line):
             if has_iso_chars:
                 # change us-ascii into iso-8859-1
                 if chrset_res.group(2).lower() == 'us-ascii':
-                    line = '%s%s%s' % (chrset_res.group(1),
-                                       CHARSET,
-                                       chrset_res.group(3))
+                    line = f'{chrset_res.group(1)}{CHARSET}{chrset_res.group(3)}'
             else:
                 # change iso-8859-* into us-ascii
                 line = '%sus-ascii%s' % chrset_res.group(1, 3)
         if has_cte and cte.match(line):
             line = 'Content-Transfer-Encoding: '
             if is_base64:
-                line = line + 'base64\n'
+                line += 'base64\n'
             elif must_quote_body:
-                line = line + 'quoted-printable\n'
+                line += 'quoted-printable\n'
             else:
-                line = line + '7bit\n'
+                line += '7bit\n'
         ofile.write(line)
     if (must_quote_header or must_quote_body) and not is_mime:
         ofile.write('Mime-Version: 1.0\n')
@@ -419,13 +399,10 @@ def mimify(infile, outfile):
         if type(outfile) == type('') and infile == outfile:
             import os
             d, f = os.path.split(infile)
-            os.rename(infile, os.path.join(d, ',' + f))
+            os.rename(infile, os.path.join(d, f',{f}'))
     else:
         ifile = infile
-    if type(outfile) == type(''):
-        ofile = open(outfile, 'w')
-    else:
-        ofile = outfile
+    ofile = open(outfile, 'w') if type(outfile) == type('') else outfile
     nifile = File(ifile, None)
     mimify_part(nifile, ofile, 0)
     ofile.flush()

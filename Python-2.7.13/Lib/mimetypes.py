@@ -124,10 +124,7 @@ class MimeTypes:
                 # bad data URL
                 return None, None
             semi = url.find(';', 0, comma)
-            if semi >= 0:
-                type = url[:semi]
-            else:
-                type = url[:comma]
+            type = url[:semi] if semi >= 0 else url[:comma]
             if '=' in type or '/' not in type:
                 type = 'text/plain'
             return type, None           # never compressed, so encoding is None
@@ -187,9 +184,7 @@ class MimeTypes:
         but non-standard types.
         """
         extensions = self.guess_all_extensions(type, strict)
-        if not extensions:
-            return None
-        return extensions[0]
+        return None if not extensions else extensions[0]
 
     def read(self, filename, strict=True):
         """
@@ -223,7 +218,7 @@ class MimeTypes:
                 continue
             type, suffixes = words[0], words[1:]
             for suff in suffixes:
-                self.add_type(type, '.' + suff, strict)
+                self.add_type(type, f'.{suff}', strict)
 
     def read_windows_registry(self, strict=True):
         """

@@ -30,11 +30,10 @@ class mutex:
     def testandset(self):
         """Atomic test-and-set -- grab the lock if it is not set,
         return True if it succeeded."""
-        if not self.locked:
-            self.locked = True
-            return True
-        else:
+        if self.locked:
             return False
+        self.locked = True
+        return True
 
     def lock(self, function, argument):
         """Lock a mutex, call the function with supplied argument

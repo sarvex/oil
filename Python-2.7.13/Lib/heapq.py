@@ -390,8 +390,7 @@ def merge(*iterables):
         # fast case when only a single iterator remains
         v, itnum, next = h[0]
         yield v
-        for v in next.__self__:
-            yield v
+        yield from next.__self__
 
 # Extend the implementations of nsmallest and nlargest to use a key= argument
 _nsmallest = nsmallest
@@ -403,13 +402,14 @@ def nsmallest(n, iterable, key=None):
     # Short-cut for n==1 is to use min() when len(iterable)>0
     if n == 1:
         it = iter(iterable)
-        head = list(islice(it, 1))
-        if not head:
+        if head := list(islice(it, 1)):
+            return (
+                [min(chain(head, it))]
+                if key is None
+                else [min(chain(head, it), key=key)]
+            )
+        else:
             return []
-        if key is None:
-            return [min(chain(head, it))]
-        return [min(chain(head, it), key=key)]
-
     # When n>=size, it's faster to use sorted()
     try:
         size = len(iterable)
@@ -441,13 +441,14 @@ def nlargest(n, iterable, key=None):
     # Short-cut for n==1 is to use max() when len(iterable)>0
     if n == 1:
         it = iter(iterable)
-        head = list(islice(it, 1))
-        if not head:
+        if head := list(islice(it, 1)):
+            return (
+                [max(chain(head, it))]
+                if key is None
+                else [max(chain(head, it), key=key)]
+            )
+        else:
             return []
-        if key is None:
-            return [max(chain(head, it))]
-        return [max(chain(head, it), key=key)]
-
     # When n>=size, it's faster to use sorted()
     try:
         size = len(iterable)

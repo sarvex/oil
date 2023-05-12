@@ -280,7 +280,7 @@ class NNTP:
         - resp: server response if successful
         - list: list of newsgroup names"""
 
-        return self.longcmd('NEWGROUPS ' + date + ' ' + time, file)
+        return self.longcmd(f'NEWGROUPS {date} {time}', file)
 
     def newnews(self, group, date, time, file=None):
         """Process a NEWNEWS command.  Arguments:
@@ -291,7 +291,7 @@ class NNTP:
         - resp: server response if successful
         - list: list of message ids"""
 
-        cmd = 'NEWNEWS ' + group + ' ' + date + ' ' + time
+        cmd = f'NEWNEWS {group} {date} {time}'
         return self.longcmd(cmd, file)
 
     def list(self, file=None):
@@ -319,25 +319,21 @@ class NNTP:
         it check whether the group actually exists."""
 
         resp, lines = self.descriptions(group)
-        if len(lines) == 0:
-            return ""
-        else:
-            return lines[0][1]
+        return "" if len(lines) == 0 else lines[0][1]
 
     def descriptions(self, group_pattern):
         """Get descriptions for a range of groups."""
         line_pat = re.compile("^(?P<group>[^ \t]+)[ \t]+(.*)$")
         # Try the more std (acc. to RFC2980) LIST NEWSGROUPS first
-        resp, raw_lines = self.longcmd('LIST NEWSGROUPS ' + group_pattern)
+        resp, raw_lines = self.longcmd(f'LIST NEWSGROUPS {group_pattern}')
         if resp[:3] != "215":
             # Now the deprecated XGTITLE.  This either raises an error
             # or succeeds with the same output structure as LIST
             # NEWSGROUPS.
-            resp, raw_lines = self.longcmd('XGTITLE ' + group_pattern)
+            resp, raw_lines = self.longcmd(f'XGTITLE {group_pattern}')
         lines = []
         for raw_line in raw_lines:
-            match = line_pat.search(raw_line.strip())
-            if match:
+            if match := line_pat.search(raw_line.strip()):
                 lines.append(match.group(1, 2))
         return resp, lines
 
@@ -351,7 +347,7 @@ class NNTP:
         - last: last article number (string)
         - name: the group name"""
 
-        resp = self.shortcmd('GROUP ' + name)
+        resp = self.shortcmd(f'GROUP {name}')
         if resp[:3] != '211':
             raise NNTPReplyError(resp)
         words = resp.split()
@@ -401,7 +397,7 @@ class NNTP:
         - nr:   the article number
         - id:   the message id"""
 
-        return self.statcmd('STAT ' + id)
+        return self.statcmd(f'STAT {id}')
 
     def next(self):
         """Process a NEXT command.  No arguments.  Return as for STAT."""
@@ -426,7 +422,7 @@ class NNTP:
         - id: message id
         - list: the lines of the article's header"""
 
-        return self.artcmd('HEAD ' + id)
+        return self.artcmd(f'HEAD {id}')
 
     def body(self, id, file=None):
         """Process a BODY command.  Argument:
@@ -439,7 +435,7 @@ class NNTP:
         - list: the lines of the article's body or an empty list
                 if file was used"""
 
-        return self.artcmd('BODY ' + id, file)
+        return self.artcmd(f'BODY {id}', file)
 
     def article(self, id):
         """Process an ARTICLE command.  Argument:
@@ -450,7 +446,7 @@ class NNTP:
         - id: message id
         - list: the lines of the article"""
 
-        return self.artcmd('ARTICLE ' + id)
+        return self.artcmd(f'ARTICLE {id}')
 
     def slave(self):
         """Process a SLAVE command.  Returns:
@@ -467,11 +463,10 @@ class NNTP:
         - list: list of (nr, value) strings"""
 
         pat = re.compile('^([0-9]+) ?(.*)\n?')
-        resp, lines = self.longcmd('XHDR ' + hdr + ' ' + str, file)
+        resp, lines = self.longcmd(f'XHDR {hdr} {str}', file)
         for i in range(len(lines)):
             line = lines[i]
-            m = pat.match(line)
-            if m:
+            if m := pat.match(line):
                 lines[i] = m.group(1, 2)
         return resp, lines
 
@@ -484,7 +479,7 @@ class NNTP:
         - list: list of (art-nr, subject, poster, date,
                          id, references, size, lines)"""
 
-        resp, lines = self.longcmd('XOVER ' + start + '-' + end, file)
+        resp, lines = self.longcmd(f'XOVER {start}-{end}', file)
         xover_lines = []
         for line in lines:
             elem = line.split("\t")
@@ -509,11 +504,10 @@ class NNTP:
         - list: list of (name,title) strings"""
 
         line_pat = re.compile("^([^ \t]+)[ \t]+(.*)$")
-        resp, raw_lines = self.longcmd('XGTITLE ' + group, file)
+        resp, raw_lines = self.longcmd(f'XGTITLE {group}', file)
         lines = []
         for raw_line in raw_lines:
-            match = line_pat.search(raw_line.strip())
-            if match:
+            if match := line_pat.search(raw_line.strip()):
                 lines.append(match.group(1, 2))
         return resp, lines
 
@@ -524,7 +518,7 @@ class NNTP:
         resp: server response if successful
         path: directory path to article"""
 
-        resp = self.shortcmd("XPATH " + id)
+        resp = self.shortcmd(f"XPATH {id}")
         if resp[:3] != '223':
             raise NNTPReplyError(resp)
         try:
@@ -572,7 +566,7 @@ class NNTP:
             if line[-1] == '\n':
                 line = line[:-1]
             if line[:1] == '.':
-                line = '.' + line
+                line = f'.{line}'
             self.putline(line)
         self.putline('.')
         return self.getresp()
@@ -585,7 +579,7 @@ class NNTP:
         - resp: server response if successful
         Note that if the server refuses the article an exception is raised."""
 
-        resp = self.shortcmd('IHAVE ' + id)
+        resp = self.shortcmd(f'IHAVE {id}')
         # Raises error_??? if the server already has it
         if resp[0] != '3':
             raise NNTPReplyError(resp)
@@ -596,7 +590,7 @@ class NNTP:
             if line[-1] == '\n':
                 line = line[:-1]
             if line[:1] == '.':
-                line = '.' + line
+                line = f'.{line}'
             self.putline(line)
         self.putline('.')
         return self.getresp()

@@ -113,10 +113,7 @@ class OptionError (OptParseError):
         self.option_id = str(option)
 
     def __str__(self):
-        if self.option_id:
-            return "option %s: %s" % (self.option_id, self.msg)
-        else:
-            return self.msg
+        return f"option {self.option_id}: {self.msg}" if self.option_id else self.msg
 
 class OptionConflictError (OptionError):
     """
@@ -229,13 +226,13 @@ class HelpFormatter:
         if delim not in ("", " "):
             raise ValueError(
                 "invalid metavar delimiter for short options: %r" % delim)
-        self._short_opt_fmt = "%s" + delim + "%s"
+        self._short_opt_fmt = f"%s{delim}%s"
 
     def set_long_opt_delimiter(self, delim):
         if delim not in ("=", " "):
             raise ValueError(
                 "invalid metavar delimiter for long options: %r" % delim)
-        self._long_opt_fmt = "%s" + delim + "%s"
+        self._long_opt_fmt = f"%s{delim}%s"
 
     def indent(self):
         self.current_indent += self.indent_increment
@@ -265,16 +262,10 @@ class HelpFormatter:
                              subsequent_indent=indent)
 
     def format_description(self, description):
-        if description:
-            return self._format_text(description) + "\n"
-        else:
-            return ""
+        return self._format_text(description) + "\n" if description else ""
 
     def format_epilog(self, epilog):
-        if epilog:
-            return "\n" + self._format_text(epilog) + "\n"
-        else:
-            return ""
+        return "\n" + self._format_text(epilog) + "\n" if epilog else ""
 
 
     def expand_default(self, option):
@@ -288,21 +279,6 @@ class HelpFormatter:
         return option.help.replace(self.default_tag, str(default_value))
 
     def format_option(self, option):
-        # The help for each option consists of two parts:
-        #   * the opt strings and metavars
-        #     eg. ("-x", or "-fFILENAME, --file=FILENAME")
-        #   * the user-supplied help string
-        #     eg. ("turn on expert mode", "read data from FILENAME")
-        #
-        # If possible, we write both of these on the same line:
-        #   -x      turn on expert mode
-        #
-        # But if the opt string list is too long, we put the help
-        # string on a second line, indented to the same column it would
-        # start in if it fit on the first line.
-        #   -fFILENAME, --file=FILENAME
-        #           read data from FILENAME
-        result = []
         opts = self.option_strings[option]
         opt_width = self.help_position - self.current_indent - 2
         if len(opts) > opt_width:
@@ -311,7 +287,7 @@ class HelpFormatter:
         else:                       # start help on same line as opts
             opts = "%*s%-*s  " % (self.current_indent, "", opt_width, opts)
             indent_first = 0
-        result.append(opts)
+        result = [opts]
         if option.help:
             help_text = self.expand_default(option)
             help_lines = textwrap.wrap(help_text, self.help_width)
@@ -352,11 +328,7 @@ class HelpFormatter:
             short_opts = option._short_opts
             long_opts = option._long_opts
 
-        if self.short_first:
-            opts = short_opts + long_opts
-        else:
-            opts = long_opts + short_opts
-
+        opts = short_opts + long_opts if self.short_first else long_opts + short_opts
         return ", ".join(opts)
 
 class IndentedHelpFormatter (HelpFormatter):
@@ -432,11 +404,10 @@ def check_builtin(option, opt, value):
 def check_choice(option, opt, value):
     if value in option.choices:
         return value
-    else:
-        choices = ", ".join(map(repr, option.choices))
-        raise OptionValueError(
-            _("option %s: invalid choice: %r (choose from %s)")
-            % (opt, value, choices))
+    choices = ", ".join(map(repr, option.choices))
+    raise OptionValueError(
+        _("option %s: invalid choice: %r (choose from %s)")
+        % (opt, value, choices))
 
 # Not supplying a default is different from a default of None,
 # so we need an explicit "not supplied" value.
@@ -578,13 +549,10 @@ class Option:
             checker(self)
 
     def _check_opt_strings(self, opts):
-        # Filter out None because early versions of Optik had exactly
-        # one short option and one long option, either of which
-        # could be None.
-        opts = filter(None, opts)
-        if not opts:
+        if opts := filter(None, opts):
+            return opts
+        else:
             raise TypeError("at least one option string must be supplied")
-        return opts
 
     def _set_opt_strings(self, opts):
         for opt in opts:
@@ -593,18 +561,18 @@ class Option:
                     "invalid option string %r: "
                     "must be at least two characters long" % opt, self)
             elif len(opt) == 2:
-                if not (opt[0] == "-" and opt[1] != "-"):
+                if opt[0] != "-" or opt[1] == "-":
                     raise OptionError(
                         "invalid short option string %r: "
                         "must be of the form -x, (x any non-dash char)" % opt,
                         self)
                 self._short_opts.append(opt)
+            elif opt[:2] != "--" or opt[2] == "-":
+                raise OptionError(
+                    "invalid long option string %r: "
+                    "must start with --, followed by non-dash" % opt,
+                    self)
             else:
-                if not (opt[0:2] == "--" and opt[2] != "-"):
-                    raise OptionError(
-                        "invalid long option string %r: "
-                        "must start with --, followed by non-dash" % opt,
-                        self)
                 self._long_opts.append(opt)
 
     def _set_attrs(self, attrs):
@@ -612,17 +580,14 @@ class Option:
             if attr in attrs:
                 setattr(self, attr, attrs[attr])
                 del attrs[attr]
+            elif attr == 'default':
+                setattr(self, attr, NO_DEFAULT)
             else:
-                if attr == 'default':
-                    setattr(self, attr, NO_DEFAULT)
-                else:
-                    setattr(self, attr, None)
+                setattr(self, attr, None)
         if attrs:
             attrs = attrs.keys()
             attrs.sort()
-            raise OptionError(
-                "invalid keyword arguments: %s" % ", ".join(attrs),
-                self)
+            raise OptionError(f'invalid keyword arguments: {", ".join(attrs)}', self)
 
 
     # -- Constructor validation methods --------------------------------
@@ -636,12 +601,7 @@ class Option:
     def _check_type(self):
         if self.type is None:
             if self.action in self.ALWAYS_TYPED_ACTIONS:
-                if self.choices is not None:
-                    # The "choices" attribute implies "choice" type.
-                    self.type = "choice"
-                else:
-                    # No type given?  "string" is the most sensible default.
-                    self.type = "string"
+                self.type = "choice" if self.choices is not None else "string"
         else:
             # Allow type objects or builtin type conversion functions
             # (int, str, etc.) as an alternative to their names.  (The
@@ -670,8 +630,9 @@ class Option:
                     "must supply a list of choices for type 'choice'", self)
             elif type(self.choices) not in (types.TupleType, types.ListType):
                 raise OptionError(
-                    "choices must be a list of strings ('%s' supplied)"
-                    % str(type(self.choices)).split("'")[1], self)
+                    f"""choices must be a list of strings ('{str(type(self.choices)).split("'")[1]}' supplied)""",
+                    self,
+                )
         elif self.choices is not None:
             raise OptionError(
                 "must not supply choices for type %r" % self.type, self)
@@ -754,27 +715,21 @@ class Option:
         return self.type is not None
 
     def get_opt_string(self):
-        if self._long_opts:
-            return self._long_opts[0]
-        else:
-            return self._short_opts[0]
+        return self._long_opts[0] if self._long_opts else self._short_opts[0]
 
 
     # -- Processing methods --------------------------------------------
 
     def check_value(self, opt, value):
         checker = self.TYPE_CHECKER.get(self.type)
-        if checker is None:
-            return value
-        else:
-            return checker(self, opt, value)
+        return value if checker is None else checker(self, opt, value)
 
     def convert_value(self, opt, value):
         if value is not None:
             if self.nargs == 1:
                 return self.check_value(opt, value)
             else:
-                return tuple([self.check_value(opt, v) for v in value])
+                return tuple(self.check_value(opt, v) for v in value)
 
     def process(self, opt, value, values, parser):
 
@@ -979,30 +934,32 @@ class OptionContainer:
     # -- Option-adding methods -----------------------------------------
 
     def _check_conflict(self, option):
-        conflict_opts = []
-        for opt in option._short_opts:
-            if opt in self._short_opt:
-                conflict_opts.append((opt, self._short_opt[opt]))
-        for opt in option._long_opts:
-            if opt in self._long_opt:
-                conflict_opts.append((opt, self._long_opt[opt]))
-
+        conflict_opts = [
+            (opt, self._short_opt[opt])
+            for opt in option._short_opts
+            if opt in self._short_opt
+        ]
+        conflict_opts.extend(
+            (opt, self._long_opt[opt])
+            for opt in option._long_opts
+            if opt in self._long_opt
+        )
         if conflict_opts:
             handler = self.conflict_handler
             if handler == "error":
                 raise OptionConflictError(
-                    "conflicting option string(s): %s"
-                    % ", ".join([co[0] for co in conflict_opts]),
-                    option)
+                    f'conflicting option string(s): {", ".join([co[0] for co in conflict_opts])}',
+                    option,
+                )
             elif handler == "resolve":
-                for (opt, c_option) in conflict_opts:
+                for opt, c_option in conflict_opts:
                     if opt.startswith("--"):
                         c_option._long_opts.remove(opt)
                         del self._long_opt[opt]
                     else:
                         c_option._short_opts.remove(opt)
                         del self._short_opt[opt]
-                    if not (c_option._short_opts or c_option._long_opts):
+                    if not c_option._short_opts and not c_option._long_opts:
                         c_option.container.option_list.remove(c_option)
 
     def add_option(self, *args, **kwargs):
@@ -1068,10 +1025,11 @@ class OptionContainer:
     def format_option_help(self, formatter):
         if not self.option_list:
             return ""
-        result = []
-        for option in self.option_list:
-            if not option.help is SUPPRESS_HELP:
-                result.append(formatter.format_option(option))
+        result = [
+            formatter.format_option(option)
+            for option in self.option_list
+            if option.help is not SUPPRESS_HELP
+        ]
         return "".join(result)
 
     def format_description(self, formatter):
@@ -1352,18 +1310,13 @@ class OptionParser (OptionContainer):
     def get_option_group(self, opt_str):
         option = (self._short_opt.get(opt_str) or
                   self._long_opt.get(opt_str))
-        if option and option.container is not self:
-            return option.container
-        return None
+        return option.container if option and option.container is not self else None
 
 
     # -- Option-parsing methods ----------------------------------------
 
     def _get_args(self, args):
-        if args is None:
-            return sys.argv[1:]
-        else:
-            return args[:]              # don't modify caller's list
+        return sys.argv[1:] if args is None else args[:]
 
     def parse_args(self, args=None, values=None):
         """
@@ -1435,7 +1388,7 @@ class OptionParser (OptionContainer):
             if arg == "--":
                 del rargs[0]
                 return
-            elif arg[0:2] == "--":
+            elif arg[:2] == "--":
                 # process a single long option (possibly with value(s))
                 self._process_long_opt(rargs, values)
             elif arg[:1] == "-" and len(arg) > 1:
@@ -1503,8 +1456,8 @@ class OptionParser (OptionContainer):
             elif nargs == 1:
                 value = rargs.pop(0)
             else:
-                value = tuple(rargs[0:nargs])
-                del rargs[0:nargs]
+                value = tuple(rargs[:nargs])
+                del rargs[:nargs]
 
         elif had_explicit_value:
             self.error(_("%s option does not take a value") % opt)
@@ -1519,7 +1472,7 @@ class OptionParser (OptionContainer):
         stop = False
         i = 1
         for ch in arg[1:]:
-            opt = "-" + ch
+            opt = f"-{ch}"
             option = self._short_opt.get(opt)
             i += 1                      # we have consumed a character
 
@@ -1542,8 +1495,8 @@ class OptionParser (OptionContainer):
                 elif nargs == 1:
                     value = rargs.pop(0)
                 else:
-                    value = tuple(rargs[0:nargs])
-                    del rargs[0:nargs]
+                    value = tuple(rargs[:nargs])
+                    del rargs[:nargs]
 
             else:                       # option doesn't take a value
                 value = None
@@ -1557,10 +1510,7 @@ class OptionParser (OptionContainer):
     # -- Feedback methods ----------------------------------------------
 
     def get_prog_name(self):
-        if self.prog is None:
-            return os.path.basename(sys.argv[0])
-        else:
-            return self.prog
+        return os.path.basename(sys.argv[0]) if self.prog is None else self.prog
 
     def expand_prog_name(self, s):
         return s.replace("%prog", self.get_prog_name())
@@ -1603,10 +1553,7 @@ class OptionParser (OptionContainer):
             print >>file, self.get_usage()
 
     def get_version(self):
-        if self.version:
-            return self.expand_prog_name(self.version)
-        else:
-            return ""
+        return self.expand_prog_name(self.version) if self.version else ""
 
     def print_version(self, file=None):
         """print_version(file : file = stdout)
@@ -1623,15 +1570,12 @@ class OptionParser (OptionContainer):
         if formatter is None:
             formatter = self.formatter
         formatter.store_option_strings(self)
-        result = []
-        result.append(formatter.format_heading(_("Options")))
+        result = [formatter.format_heading(_("Options"))]
         formatter.indent()
         if self.option_list:
-            result.append(OptionContainer.format_option_help(self, formatter))
-            result.append("\n")
+            result.extend((OptionContainer.format_option_help(self, formatter), "\n"))
         for group in self.option_groups:
-            result.append(group.format_help(formatter))
-            result.append("\n")
+            result.extend((group.format_help(formatter), "\n"))
         formatter.dedent()
         # Drop the last "\n", or the header if no options or option groups:
         return "".join(result[:-1])
@@ -1647,8 +1591,9 @@ class OptionParser (OptionContainer):
             result.append(self.get_usage() + "\n")
         if self.description:
             result.append(self.format_description(formatter) + "\n")
-        result.append(self.format_option_help(formatter))
-        result.append(self.format_epilog(formatter))
+        result.extend(
+            (self.format_option_help(formatter), self.format_epilog(formatter))
+        )
         return "".join(result)
 
     # used by test suite
@@ -1679,22 +1624,20 @@ def _match_abbrev(s, wordmap):
     abbreviation.  If 's' is found to be ambiguous or doesn't match any of
     'words', raise BadOptionError.
     """
-    # Is there an exact match?
     if s in wordmap:
         return s
+    # Isolate all words with s as a prefix.
+    possibilities = [word for word in wordmap.keys()
+                     if word.startswith(s)]
+    # No exact match, so there had better be just one possibility.
+    if len(possibilities) == 1:
+        return possibilities[0]
+    elif not possibilities:
+        raise BadOptionError(s)
     else:
-        # Isolate all words with s as a prefix.
-        possibilities = [word for word in wordmap.keys()
-                         if word.startswith(s)]
-        # No exact match, so there had better be just one possibility.
-        if len(possibilities) == 1:
-            return possibilities[0]
-        elif not possibilities:
-            raise BadOptionError(s)
-        else:
-            # More than one possible completion: ambiguous prefix.
-            possibilities.sort()
-            raise AmbiguousOptionError(s, possibilities)
+        # More than one possible completion: ambiguous prefix.
+        possibilities.sort()
+        raise AmbiguousOptionError(s, possibilities)
 
 
 # Some day, there might be many Option classes.  As of Optik 1.3, the

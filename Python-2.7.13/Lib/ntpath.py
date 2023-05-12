@@ -114,7 +114,7 @@ def splitdrive(p):
     """
     if len(p) > 1:
         normp = p.replace(altsep, sep)
-        if (normp[0:2] == sep*2) and (normp[2:3] != sep):
+        if normp[:2] == sep * 2 and normp[2:3] != sep:
             # is a UNC path:
             # vvvvvvvvvvvvvvvvvvvv drive letter or UNC path
             # \\machine\mountpoint\directory\etc\...
@@ -145,8 +145,8 @@ def splitunc(p):
     """
     if p[1:2] == ':':
         return '', p # Drive letter present
-    firstTwo = p[0:2]
-    if firstTwo == '//' or firstTwo == '\\\\':
+    firstTwo = p[:2]
+    if firstTwo in ['//', '\\\\']:
         # is a UNC path:
         # vvvvvvvvvvvvvvvvvvvv equivalent to drive letter
         # \\machine\mountpoint\directories...
@@ -181,7 +181,7 @@ def split(p):
     # set i to index beyond p's last slash
     i = len(p)
     while i and p[i-1] not in '/\\':
-        i = i - 1
+        i -= 1
     head, tail = p[:i], p[i:]  # now tail has no slashes
     # remove trailing slashes from head, unless it's all slashes
     head2 = head
@@ -290,13 +290,13 @@ def expanduser(path):
         return path
     i, n = 1, len(path)
     while i < n and path[i] not in '/\\':
-        i = i + 1
+        i += 1
 
     if 'HOME' in os.environ:
         userhome = os.environ['HOME']
     elif 'USERPROFILE' in os.environ:
         userhome = os.environ['USERPROFILE']
-    elif not 'HOMEPATH' in os.environ:
+    elif 'HOMEPATH' not in os.environ:
         return path
     else:
         try:
@@ -363,14 +363,14 @@ def expandvars(path):
                 try:
                     index = path.index('%')
                 except ValueError:
-                    res = res + '%' + path
+                    res = f'{res}%{path}'
                     index = pathlen - 1
                 else:
                     var = path[:index]
                     try:
                         res = res + getenv(var)
                     except KeyError:
-                        res = res + '%' + var + '%'
+                        res = f'{res}%{var}%'
         elif c == '$':  # variable or '$$'
             if path[index + 1:index + 2] == '$':
                 res = res + c
@@ -399,7 +399,7 @@ def expandvars(path):
                 try:
                     res = res + getenv(var)
                 except KeyError:
-                    res = res + '$' + var
+                    res = f'{res}${var}'
                 if c != '':
                     index = index - 1
         else:
@@ -415,7 +415,7 @@ def expandvars(path):
 def normpath(path):
     """Normalize path, eliminating double slashes, etc."""
     # Preserve unicode (if path is unicode)
-    backslash, dot = (u'\\', u'.') if isinstance(path, _unicode) else ('\\', '.')
+    backslash, dot = ('\\', '.')
     if path.startswith(('\\\\.\\', '\\\\?\\')):
         # in the case of paths with these prefixes:
         # \\.\ -> device names
@@ -438,11 +438,9 @@ def normpath(path):
         while path[:1] == "\\":
             prefix = prefix + backslash
             path = path[1:]
-    else:
-        # We have a drive letter - collapse initial backslashes
-        if path.startswith("\\"):
-            prefix = prefix + backslash
-            path = path.lstrip("\\")
+    elif path.startswith("\\"):
+        prefix = prefix + backslash
+        path = path.lstrip("\\")
     comps = path.split("\\")
     i = 0
     while i < len(comps):
@@ -472,10 +470,7 @@ except ImportError: # not running on Windows - mock up something sensible
     def abspath(path):
         """Return the absolute version of a path."""
         if not isabs(path):
-            if isinstance(path, _unicode):
-                cwd = os.getcwdu()
-            else:
-                cwd = os.getcwd()
+            cwd = os.getcwdu() if isinstance(path, _unicode) else os.getcwd()
             path = join(cwd, path)
         return normpath(path)
 
@@ -518,15 +513,16 @@ def relpath(path, start=curdir):
     path_is_unc, path_prefix, path_list = _abspath_split(path)
 
     if path_is_unc ^ start_is_unc:
-        raise ValueError("Cannot mix UNC and non-UNC paths (%s and %s)"
-                                                            % (path, start))
+        raise ValueError(f"Cannot mix UNC and non-UNC paths ({path} and {start})")
     if path_prefix.lower() != start_prefix.lower():
         if path_is_unc:
-            raise ValueError("path is on UNC root %s, start on UNC root %s"
-                                                % (path_prefix, start_prefix))
+            raise ValueError(
+                f"path is on UNC root {path_prefix}, start on UNC root {start_prefix}"
+            )
         else:
-            raise ValueError("path is on drive %s, start on drive %s"
-                                                % (path_prefix, start_prefix))
+            raise ValueError(
+                f"path is on drive {path_prefix}, start on drive {start_prefix}"
+            )
     # Work out how much of the filepath is shared by start and path.
     i = 0
     for e1, e2 in zip(start_list, path_list):
@@ -535,9 +531,7 @@ def relpath(path, start=curdir):
         i += 1
 
     rel_list = [pardir] * (len(start_list)-i) + path_list[i:]
-    if not rel_list:
-        return curdir
-    return join(*rel_list)
+    return curdir if not rel_list else join(*rel_list)
 
 try:
     # The genericpath.isdir implementation uses os.stat and checks the mode

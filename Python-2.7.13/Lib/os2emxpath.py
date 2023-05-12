@@ -51,7 +51,7 @@ def join(a, *p):
         elif path == '' or path[-1:] in '/\\:':
             path = path + b
         else:
-            path = path + '/' + b
+            path = f'{path}/{b}'
     return path
 
 
@@ -66,8 +66,8 @@ def splitunc(p):
     """
     if p[1:2] == ':':
         return '', p # Drive letter present
-    firstTwo = p[0:2]
-    if firstTwo == '/' * 2 or firstTwo == '\\' * 2:
+    firstTwo = p[:2]
+    if firstTwo in ['/' * 2, '\\' * 2]:
         # is a UNC path:
         # vvvvvvvvvvvvvvvvvvvv equivalent to drive letter
         # \\machine\mountpoint\directories...
@@ -123,7 +123,7 @@ def normpath(path):
     path = path.replace('\\', '/')
     prefix, path = splitdrive(path)
     while path[:1] == '/':
-        prefix = prefix + '/'
+        prefix = f'{prefix}/'
         path = path[1:]
     comps = path.split('/')
     i = 0
@@ -132,11 +132,11 @@ def normpath(path):
             del comps[i]
         elif comps[i] == '..' and i > 0 and comps[i-1] not in ('', '..'):
             del comps[i-1:i+1]
-            i = i - 1
+            i -= 1
         elif comps[i] == '' and i > 0 and comps[i-1] != '':
             del comps[i]
         else:
-            i = i + 1
+            i += 1
     # If the path is now empty, substitute '.'
     if not prefix and not comps:
         comps.append('.')
@@ -147,10 +147,7 @@ def normpath(path):
 def abspath(path):
     """Return the absolute version of a path"""
     if not isabs(path):
-        if isinstance(path, _unicode):
-            cwd = os.getcwdu()
-        else:
-            cwd = os.getcwd()
+        cwd = os.getcwdu() if isinstance(path, _unicode) else os.getcwd()
         path = join(cwd, path)
     return normpath(path)
 

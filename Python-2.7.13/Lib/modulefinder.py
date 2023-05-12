@@ -1,5 +1,6 @@
 """Find modules used by a script, using introspection."""
 
+
 from __future__ import generators
 import dis
 import imp
@@ -9,12 +10,7 @@ import sys
 import types
 import struct
 
-if hasattr(sys.__stdout__, "newlines"):
-    READ_MODE = "U"  # universal line endings
-else:
-    # Python < 2.3 compatibility, no longer strictly required
-    READ_MODE = "r"
-
+READ_MODE = "U" if hasattr(sys.__stdout__, "newlines") else "r"
 LOAD_CONST = dis.opmap['LOAD_CONST']
 IMPORT_NAME = dis.opmap['IMPORT_NAME']
 STORE_NAME = dis.opmap['STORE_NAME']
@@ -32,12 +28,12 @@ def _unpack_opargs(code):
     while i < n:
         op = ord(code[i])
         offset = i
-        i = i+1
+        i += 1
         arg = None
         if op >= HAVE_ARGUMENT:
             arg = ord(code[i]) + ord(code[i+1])*256 + extended_arg
             extended_arg = 0
-            i = i+2
+            i += 2
             if op == EXTENDED_ARG:
                 extended_arg = arg*65536
         yield (offset, op, arg)
@@ -88,8 +84,7 @@ class Module:
             s = s + ", %r" % (self.__file__,)
         if self.__path__ is not None:
             s = s + ", %r" % (self.__path__,)
-        s = s + ")"
-        return s
+        return f"{s})"
 
 class ModuleFinder:
 
@@ -194,23 +189,18 @@ class ModuleFinder:
         else:
             head = name
             tail = ""
-        if parent:
-            qname = "%s.%s" % (parent.__name__, head)
-        else:
-            qname = head
-        q = self.import_module(head, qname, parent)
-        if q:
+        qname = f"{parent.__name__}.{head}" if parent else head
+        if q := self.import_module(head, qname, parent):
             self.msgout(4, "find_head_package ->", (q, tail))
             return q, tail
         if parent:
             qname = head
             parent = None
-            q = self.import_module(head, qname, parent)
-            if q:
+            if q := self.import_module(head, qname, parent):
                 self.msgout(4, "find_head_package ->", (q, tail))
                 return q, tail
         self.msgout(4, "raise ImportError: No module named", qname)
-        raise ImportError, "No module named " + qname
+        raise (ImportError, f"No module named {qname}")
 
     def load_tail(self, q, tail):
         self.msgin(4, "load_tail", q, tail)
@@ -219,11 +209,11 @@ class ModuleFinder:
             i = tail.find('.')
             if i < 0: i = len(tail)
             head, tail = tail[:i], tail[i+1:]
-            mname = "%s.%s" % (m.__name__, head)
+            mname = f"{m.__name__}.{head}"
             m = self.import_module(head, mname, m)
             if not m:
                 self.msgout(4, "raise ImportError: No module named", mname)
-                raise ImportError, "No module named " + mname
+                raise (ImportError, f"No module named {mname}")
         self.msgout(4, "load_tail ->", m)
         return m
 
@@ -232,25 +222,19 @@ class ModuleFinder:
         for sub in fromlist:
             if sub == "*":
                 if not recursive:
-                    all = self.find_all_submodules(m)
-                    if all:
+                    if all := self.find_all_submodules(m):
                         self.ensure_fromlist(m, all, 1)
             elif not hasattr(m, sub):
-                subname = "%s.%s" % (m.__name__, sub)
+                subname = f"{m.__name__}.{sub}"
                 submod = self.import_module(sub, subname, m)
                 if not submod:
-                    raise ImportError, "No module named " + subname
+                    raise (ImportError, f"No module named {subname}")
 
     def find_all_submodules(self, m):
         if not m.__path__:
             return
         modules = {}
-        # 'suffixes' used to be a list hardcoded to [".py", ".pyc", ".pyo"].
-        # But we must also collect Python extension modules - although
-        # we cannot separate normal dlls from Python extensions.
-        suffixes = []
-        for triple in imp.get_suffixes():
-            suffixes.append(triple[0])
+        suffixes = [triple[0] for triple in imp.get_suffixes()]
         for dir in m.__path__:
             try:
                 names = os.listdir(dir)
@@ -310,7 +294,7 @@ class ModuleFinder:
         elif type == imp.PY_COMPILED:
             if fp.read(4) != imp.get_magic():
                 self.msgout(2, "raise ImportError: Bad magic number", pathname)
-                raise ImportError, "Bad magic number in %s" % pathname
+                raise (ImportError, f"Bad magic number in {pathname}")
             fp.read(4)
             co = marshal.load(fp)
         else:
@@ -415,8 +399,7 @@ class ModuleFinder:
                     if "*" in fromlist:
                         have_star = 1
                     fromlist = [f for f in fromlist if f != "*"]
-                if what == "absolute_import": level = 0
-                else: level = -1
+                level = 0 if what == "absolute_import" else -1
                 self._safe_import_hook(name, m, fromlist, level=level)
                 if have_star:
                     # We've encountered an "import *". If it is a Python module,
@@ -427,7 +410,7 @@ class ModuleFinder:
                         # At this point we don't know whether 'name' is a
                         # submodule of 'm' or a global module. Let's just try
                         # the full name first.
-                        mm = self.modules.get(m.__name__ + "." + name)
+                        mm = self.modules.get(f"{m.__name__}.{name}")
                     if mm is None:
                         mm = self.modules.get(name)
                     if mm is not None:
@@ -454,15 +437,14 @@ class ModuleFinder:
 
     def load_package(self, fqname, pathname):
         self.msgin(2, "load_package", fqname, pathname)
-        newname = replacePackageMap.get(fqname)
-        if newname:
+        if newname := replacePackageMap.get(fqname):
             fqname = newname
         m = self.add_module(fqname)
         m.__file__ = pathname
         m.__path__ = [pathname]
 
         # As per comment at top of file, simulate runtime __path__ additions.
-        m.__path__ = m.__path__ + packagePathMap.get(fqname, [])
+        m.__path__ += packagePathMap.get(fqname, [])
 
         fp, buf, stuff = self.find_module("__init__", m.__path__)
         self.load_module(fqname, fp, buf, stuff)
@@ -478,11 +460,7 @@ class ModuleFinder:
         return m
 
     def find_module(self, name, path, parent=None):
-        if parent is not None:
-            # assert path is not None
-            fullname = parent.__name__+'.'+name
-        else:
-            fullname = name
+        fullname = f'{parent.__name__}.{name}' if parent is not None else name
         if fullname in self.excludes:
             self.msgout(3, "find_module -> Excluded", fullname)
             raise ImportError, name
@@ -560,27 +538,20 @@ class ModuleFinder:
             subname = name[i+1:]
             pkgname = name[:i]
             pkg = self.modules.get(pkgname)
-            if pkg is not None:
-                if pkgname in self.badmodules[name]:
-                    # The package tried to import this module itself and
-                    # failed. It's definitely missing.
-                    missing.append(name)
-                elif subname in pkg.globalnames:
-                    # It's a global in the package: definitely not missing.
-                    pass
-                elif pkg.starimports:
-                    # It could be missing, but the package did an "import *"
-                    # from a non-Python module, so we simply can't be sure.
-                    maybe.append(name)
-                else:
-                    # It's not a global in the package, the package didn't
-                    # do funny star imports, it's very likely to be missing.
-                    # The symbol could be inserted into the package from the
-                    # outside, but since that's not good style we simply list
-                    # it missing.
-                    missing.append(name)
-            else:
+            if pkg is None:
                 missing.append(name)
+            elif (
+                pkgname in self.badmodules[name]
+                or subname not in pkg.globalnames
+                and not pkg.starimports
+            ):
+                # The package tried to import this module itself and
+                # failed. It's definitely missing.
+                missing.append(name)
+            elif subname not in pkg.globalnames:
+                # It could be missing, but the package did an "import *"
+                # from a non-Python module, so we simply can't be sure.
+                maybe.append(name)
         missing.sort()
         maybe.sort()
         return missing, maybe
